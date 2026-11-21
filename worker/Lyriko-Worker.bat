@@ -45,7 +45,7 @@ if not defined NODE_BIN (
   exit /b 1
 )
 
-if exist "%BASE_DIR%\python\python.exe" goto :after_ai_setup
+if exist "%BASE_DIR%\python\python.exe" goto :check_python_health
 if defined LYRIKO_PYTHON goto :after_ai_setup
 
 echo [INFO] First launch: setting up portable Python AI environment inside .\python ...
@@ -56,6 +56,16 @@ if errorlevel 1 (
   echo [WARN] AI Python setup did not complete ^(you can retry next launch^).
   echo [INFO] Starting worker anyway for search, lyrics, and MP4 export...
 )
+goto :bind_portable_python
+
+:check_python_health
+if /I not "%LYRIKO_PYTHON%"=="%BASE_DIR%\python\python.exe" goto :after_ai_setup
+"%BASE_DIR%\python\python.exe" -c "import torch, torchaudio" >nul 2>&1
+if not errorlevel 1 goto :bind_portable_python
+echo [WARN] Portable AI Python packages need repair. Running repair...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%BASE_DIR%\setup-ai-env.ps1"
+
+:bind_portable_python
 if exist "%BASE_DIR%\python\python.exe" set "LYRIKO_PYTHON=%BASE_DIR%\python\python.exe"
 if defined LYRIKO_PYTHON set "UTAKANA_PYTHON=%LYRIKO_PYTHON%"
 :after_ai_setup
