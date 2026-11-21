@@ -178,6 +178,10 @@ export function WorkerStatusModal({
                   <span className="font-mono text-[10.5px] text-slate-300 truncate">
                     {activeBase}
                   </span>
+                  <span>AI 싱크 예상</span>
+                  <span className="text-slate-300 tabular-nums">
+                    4분 곡 기준 · RTX 3060 약 30~45초 · RTX 5090 약 10~15초
+                  </span>
                 </div>
                 <div className="flex flex-wrap gap-1.5 pt-0.5">
                   {capBadge('FFmpeg', workerHealth.ffmpeg)}
@@ -187,10 +191,15 @@ export function WorkerStatusModal({
                 </div>
               </>
             ) : (
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                공용 DB에 이미 분석된 곡은 워커 없이 바로 감상할 수 있습니다. 새로운 곡을
-                YouTube에서 가져오거나 AI 싱크·MP4 인코딩을 실행하려면 로컬 워커를 실행해 주세요.
-              </p>
+              <div className="space-y-1.5 text-[11px] text-slate-400 leading-relaxed">
+                <p>
+                  공용 DB에 이미 분석된 곡은 워커 없이 바로 감상할 수 있습니다. 새로운 곡을
+                  YouTube에서 가져오거나 AI 싱크·MP4 인코딩을 실행하려면 로컬 워커를 실행해 주세요.
+                </p>
+                <p className="text-[10.5px] text-slate-300 tabular-nums">
+                  예상 AI 작업 시간 (4분 곡 기준): RTX 3060 약 30~45초 · RTX 5090 약 10~15초
+                </p>
+              </div>
             )}
 
             <div className="flex items-center gap-2 pt-1">

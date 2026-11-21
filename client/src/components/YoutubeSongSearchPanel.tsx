@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
+  Cpu,
   ExternalLink,
   Library,
   Loader2,
@@ -970,7 +971,7 @@ export function YoutubeSongSearchPanel({
                 },
                 {
                   title: '3. 가사·번역·싱크 일괄 적용',
-                  desc: '이미 라이브러리에 있는 곡은 GPU 계산 없이 즉시 로드할 수도 있습니다.',
+                  desc: '4분 곡 기준 AI 싱크 약 30~45초(RTX 3060) · 약 10~15초(RTX 5090) 소요 (라이브러리 곡은 즉시 로드).',
                   tone: 'border-emerald-400/25 bg-emerald-500/[0.05]',
                 },
               ].map((card) => (
@@ -1013,23 +1014,37 @@ export function YoutubeSongSearchPanel({
                   style={{ width: `${batchPercent}%` }}
                 />
               </div>
+              <div className="text-[10.5px] text-slate-400 flex items-center gap-1.5">
+                <Cpu className="h-3 w-3 text-sky-400 shrink-0" />
+                <span>
+                  예상 AI 작업 시간 (4분 곡 기준): RTX 3060 약 30~45초 · RTX 5090 약 10~15초 (최초 1회 모델 다운로드 제외)
+                </span>
+              </div>
             </div>
           ) : (
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
-                <span className="text-slate-400">선택된 트랙:</span>
-                {selectedSlotsList.length > 0 ? (
-                  selectedSlotsList.map((s) => (
-                    <span
-                      key={s}
-                      className={`rounded border px-2 py-0.5 text-[11px] font-semibold ${slotAccent[s].badge}`}
-                    >
-                      {slotLabel(s)} ✓
-                    </span>
-                  ))
-                ) : (
-                  <span className="text-amber-300">가져올 트랙을 하나 이상 선택하세요</span>
-                )}
+              <div className="space-y-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
+                  <span className="text-slate-400">선택된 트랙:</span>
+                  {selectedSlotsList.length > 0 ? (
+                    selectedSlotsList.map((s) => (
+                      <span
+                        key={s}
+                        className={`rounded border px-2 py-0.5 text-[11px] font-semibold ${slotAccent[s].badge}`}
+                      >
+                        {slotLabel(s)} ✓
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-amber-300">가져올 트랙을 하나 이상 선택하세요</span>
+                  )}
+                </div>
+                <div className="text-[10.5px] text-slate-400 flex items-center gap-1.5">
+                  <Cpu className="h-3 w-3 text-sky-400 shrink-0" />
+                  <span>
+                    AI 싱크 예상 (4분 곡): RTX 3060 약 30~45초 · RTX 5090 약 10~15초
+                  </span>
+                </div>
               </div>
 
               <button
