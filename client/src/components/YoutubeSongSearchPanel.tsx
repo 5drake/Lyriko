@@ -95,6 +95,8 @@ export interface YoutubeSongSearchPanelProps {
   ) => Promise<void>;
   onLoadLibrarySong: (song: LibrarySongSummary) => Promise<void>;
   onSwitchToLibrary: () => void;
+  workerConnected?: boolean;
+  onOpenWorkerModal?: () => void;
   onBusyChange?: (busy: boolean) => void;
   onImportComplete?: () => void;
 }
@@ -117,6 +119,8 @@ export function YoutubeSongSearchPanel({
   onKaraokeAudioLoaded,
   onLoadLibrarySong,
   onSwitchToLibrary,
+  workerConnected = true,
+  onOpenWorkerModal,
   onBusyChange,
   onImportComplete,
 }: YoutubeSongSearchPanelProps) {
@@ -315,6 +319,13 @@ export function YoutubeSongSearchPanel({
       return;
     }
 
+    if (!workerConnected) {
+      setYtError(
+        "새 곡 음원 추출 및 AI 자동 싱크는 로컬 GPU 워커가 필요합니다. 우측 하단 '로컬 워커 연결 안내'에서 1클릭 실행 후 이용해 주세요."
+      );
+      return;
+    }
+
     setBatchImporting(true);
     setYtError('');
     setBatchPercent(3);
@@ -373,7 +384,12 @@ export function YoutubeSongSearchPanel({
       setBatchStatus('');
       onImportComplete?.();
     } catch (err) {
-      setYtError(err instanceof Error ? err.message : String(err));
+      const msg = err instanceof Error ? err.message : String(err);
+      setYtError(
+        msg.toLowerCase().includes('failed to fetch')
+          ? "로컬 GPU 워커와 연결할 수 없습니다. '로컬 워커 연결 안내'에서 워커를 실행한 뒤 다시 시도해 주세요."
+          : msg
+      );
       setBatchImporting(false);
       setBatchStatus('');
     }
@@ -1042,20 +1058,33 @@ export function YoutubeSongSearchPanel({
                 <div className="text-[10.5px] text-slate-400 flex items-center gap-1.5">
                   <Cpu className="h-3 w-3 text-sky-400 shrink-0" />
                   <span>
-                    AI 싱크 예상 (4분 곡): RTX 3060 약 30~45초 · RTX 5090 약 10~15초
+                    {workerConnected
+                      ? 'AI 싱크 예상 (4분 곡): RTX 3060 약 30~45초 · RTX 5090 약 10~15초'
+                      : '검색·미리보기는 웹에서 바로 가능 · 새 곡 음원 추출/AI 싱크는 로컬 워커 필요 (4분 곡 기준 RTX 3060 약 30~45초 · RTX 5090 약 10~15초)'}
                   </span>
                 </div>
               </div>
 
-              <button
-                type="button"
-                disabled={selectedSlotsList.length === 0}
-                onClick={() => void handleImportPickedCandidates()}
-                className="inline-flex items-center gap-2 rounded-xl bg-sky-500 px-5 py-2 text-xs font-bold text-slate-950 hover:bg-sky-400 disabled:opacity-40 transition shadow-md shadow-sky-500/20"
-              >
-                <CheckCircle2 className="h-4 w-4" />
-                {`선택한 ${selectedSlotsList.length}종 가져오기`}
-              </button>
+              {workerConnected ? (
+                <button
+                  type="button"
+                  disabled={selectedSlotsList.length === 0}
+                  onClick={() => void handleImportPickedCandidates()}
+                  className="inline-flex items-center gap-2 rounded-xl bg-sky-500 px-5 py-2 text-xs font-bold text-slate-950 hover:bg-sky-400 disabled:opacity-40 transition shadow-md shadow-sky-500/20"
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  {`선택한 ${selectedSlotsList.length}종 가져오기`}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onOpenWorkerModal?.()}
+                  className="inline-flex items-center gap-2 rounded-xl border border-amber-400/45 bg-amber-500/20 px-4 py-2 text-xs font-bold text-amber-200 hover:bg-amber-500/30 transition shadow-sm shrink-0"
+                >
+                  <Cpu className="h-4 w-4" />
+                  로컬 워커 연결 후 가져오기
+                </button>
+              )}
             </div>
           )}
         </div>

@@ -9,7 +9,8 @@ import type {
   SmartTranslateResult,
   WorkerHealthResponse,
 } from '@shared/types';
-import { workerUrl } from './workerClient';
+import { getSupabaseCredentials, supabaseHeaders } from './services/communityDb';
+import { isLocalHostOrigin, workerUrl } from './workerClient';
 
 async function handleJson<T>(res: Response): Promise<T> {
   const data = (await res.json().catch(() => ({}))) as T & { error?: string };
@@ -334,22 +335,112 @@ export interface SongSuggestResponse {
   keywords: string[];
 }
 
-export async function suggestSongsApi(query: string): Promise<SongSuggestResponse> {
-  return handleJson(
-    await fetch(workerUrl(`/api/youtube/song-suggest?q=${encodeURIComponent(query)}`))
+function isNetworkFetchError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return (
+    err.name === 'TypeError' ||
+    msg.includes('failed to fetch') ||
+    msg.includes('networkerror') ||
+    msg.includes('load failed')
   );
+}
+
+async function callYoutubeSearchEdge<T>(params: URLSearchParams): Promise<T> {
+  const creds = getSupabaseCredentials();
+  if (!creds) {
+    throw new Error('Supabase search endpoint not configured');
+  }
+  const res = await fetch(
+    `${creds.url}/functions/v1/youtube-search?${params.toString()}`,
+    {
+      headers: supabaseHeaders(creds),
+      signal: AbortSignal.timeout(9000),
+    }
+  );
+  return handleJson<T>(res);
+}
+
+export async function suggestSongsApi(query: string): Promise<SongSuggestResponse> {
+  const params = new URLSearchParams({ action: 'suggest', q: query });
+  const creds = getSupabaseCredentials();
+  const preferEdge = !isLocalHostOrigin() && Boolean(creds);
+
+  if (preferEdge) {
+    try {
+      return await callYoutubeSearchEdge<SongSuggestResponse>(params);
+    } catch {
+      return handleJson(
+        await fetch(workerUrl(`/api/youtube/song-suggest?q=${encodeURIComponent(query)}`))
+      );
+    }
+  }
+
+  try {
+    return await handleJson(
+      await fetch(workerUrl(`/api/youtube/song-suggest?q=${encodeURIComponent(query)}`))
+    );
+  } catch (err) {
+    if (creds) {
+      return await callYoutubeSearchEdge<SongSuggestResponse>(params);
+    }
+    throw err;
+  }
 }
 
 export async function searchYoutubeTracksApi(
   query: string,
   hints?: Partial<ResolvedSongInfo>
 ): Promise<YoutubeThreeTrackSearchResult> {
-  const params = new URLSearchParams({ q: query });
-  if (hints?.title) params.set('title', hints.title);
-  if (hints?.artist) params.set('artist', hints.artist);
-  if (hints?.duration) params.set('duration', String(hints.duration));
-  if (hints?.artworkUrl) params.set('artwork', hints.artworkUrl);
-  return handleJson(await fetch(workerUrl(`/api/youtube/search-tracks?${params.toString()}`)));
+  const workerParams = new URLSearchParams({ q: query });
+  if (hints?.title) workerParams.set('title', hints.title);
+  if (hints?.artist) workerParams.set('artist', hints.artist);
+  if (hints?.duration) workerParams.set('duration', String(hints.duration));
+  if (hints?.artworkUrl) workerParams.set('artwork', hints.artworkUrl);
+
+  const edgeParams = new URLSearchParams(workerParams);
+  edgeParams.set('action', 'search-tracks');
+
+  const creds = getSupabaseCredentials();
+  const preferEdge = !isLocalHostOrigin() && Boolean(creds);
+
+  if (preferEdge) {
+    try {
+      return await callYoutubeSearchEdge<YoutubeThreeTrackSearchResult>(edgeParams);
+    } catch (edgeErr) {
+      try {
+        return await handleJson(
+          await fetch(workerUrl(`/api/youtube/search-tracks?${workerParams.toString()}`))
+        );
+      } catch (workerErr) {
+        if (isNetworkFetchError(workerErr) && isNetworkFetchError(edgeErr)) {
+          throw new Error('곡 검색 서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.');
+        }
+        throw edgeErr;
+      }
+    }
+  }
+
+  try {
+    return await handleJson(
+      await fetch(workerUrl(`/api/youtube/search-tracks?${workerParams.toString()}`))
+    );
+  } catch (workerErr) {
+    if (creds) {
+      try {
+        return await callYoutubeSearchEdge<YoutubeThreeTrackSearchResult>(edgeParams);
+      } catch (edgeErr) {
+        if (isNetworkFetchError(edgeErr)) {
+          throw new Error('곡 검색 서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.');
+        }
+        throw edgeErr;
+      }
+    }
+    if (isNetworkFetchError(workerErr)) {
+      throw new Error('로컬 워커가 연결되지 않아 검색할 수 없습니다.');
+    }
+    throw workerErr;
+  }
 }
 
 export async function importYoutubeWithProgress(

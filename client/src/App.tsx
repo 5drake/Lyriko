@@ -2035,6 +2035,11 @@ export default function App() {
         onLoadSong={handleLoadLibrarySong}
         onPublishCurrentSong={handlePublishCurrentSong}
         onLibraryChanged={() => setLibraryVersion((v) => v + 1)}
+        onOpenWorkerModal={() => {
+          setLibraryModalOpen(false);
+          setWorkerOpen(true);
+          void refreshWorkerHealth();
+        }}
         onClose={() => {
           setLibraryModalOpen(false);
           setLibraryInitialPublish(false);

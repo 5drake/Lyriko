@@ -113,7 +113,7 @@ export function saveContributorName(name: string): void {
   }
 }
 
-function getSupabaseCredentials(): SupabaseCredentials | null {
+export function getSupabaseCredentials(): SupabaseCredentials | null {
   const envUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim() || '';
   const envKey =
     (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined)?.trim() ||
@@ -144,7 +144,7 @@ function getSupabaseCredentials(): SupabaseCredentials | null {
   return null;
 }
 
-function supabaseHeaders(
+export function supabaseHeaders(
   creds: SupabaseCredentials,
   extra?: Record<string, string>
 ): Record<string, string> {

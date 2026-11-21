@@ -95,6 +95,7 @@ interface SongLibraryModalProps {
   onLoadSong: (song: LibrarySongSummary, revId?: string) => Promise<void>;
   onPublishCurrentSong: (opts?: PublishSongOptions) => Promise<PublishSongResult>;
   onLibraryChanged?: () => void;
+  onOpenWorkerModal?: () => void;
   onClose: () => void;
 }
 
@@ -187,6 +188,7 @@ export function SongLibraryModal({
   onLoadSong,
   onPublishCurrentSong,
   onLibraryChanged,
+  onOpenWorkerModal,
   onClose,
 }: SongLibraryModalProps) {
   const [activeTab, setActiveTab] = useState<'search' | 'library'>(initialTab);
@@ -649,6 +651,8 @@ export function SongLibraryModal({
             onKaraokeAudioLoaded={onKaraokeAudioLoaded}
             onLoadLibrarySong={(song) => handleLoadAndClose(song)}
             onSwitchToLibrary={() => setActiveTab('library')}
+            workerConnected={workerConnected}
+            onOpenWorkerModal={onOpenWorkerModal}
             onBusyChange={setSearchBusy}
             onImportComplete={onClose}
           />
