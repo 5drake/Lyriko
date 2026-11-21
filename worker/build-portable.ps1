@@ -25,9 +25,19 @@ $null = robocopy (Join-Path $RootDir 'shared') (Join-Path $StageDir 'shared') /E
 Copy-Item (Join-Path $RootDir 'package.json') (Join-Path $StageDir 'package.json') -Force
 
 # Copy worker launcher & docs
-Copy-Item (Join-Path $PSScriptRoot 'Lyriko-Worker.bat') (Join-Path $StageDir 'Lyriko-Worker.bat') -Force
-Copy-Item (Join-Path $PSScriptRoot 'setup-ai-env.ps1') (Join-Path $StageDir 'setup-ai-env.ps1') -Force
+$StageBat = Join-Path $StageDir 'Lyriko-Worker.bat'
+$StageSetupPs1 = Join-Path $StageDir 'setup-ai-env.ps1'
+Copy-Item (Join-Path $PSScriptRoot 'Lyriko-Worker.bat') $StageBat -Force
+Copy-Item (Join-Path $PSScriptRoot 'setup-ai-env.ps1') $StageSetupPs1 -Force
 Copy-Item (Join-Path $PSScriptRoot '완전삭제_안내.txt') (Join-Path $StageDir '완전삭제_안내.txt') -Force
+
+# Guarantee Windows CRLF line endings & clean encodings before zipping
+$batText = ([System.IO.File]::ReadAllText($StageBat, [System.Text.Encoding]::ASCII)) -replace "`r?`n", "`r`n"
+[System.IO.File]::WriteAllText($StageBat, $batText, [System.Text.Encoding]::ASCII)
+
+$utf8Bom = New-Object System.Text.UTF8Encoding($true)
+$ps1Text = ([System.IO.File]::ReadAllText($StageSetupPs1, [System.Text.Encoding]::UTF8)) -replace "`r?`n", "`r`n"
+[System.IO.File]::WriteAllText($StageSetupPs1, $ps1Text, $utf8Bom)
 
 # Optionally bundle host node.exe for true zero-prerequisite execution
 if ($IncludeNode) {

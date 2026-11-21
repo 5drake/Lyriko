@@ -47,6 +47,7 @@ Write-Host "[2/4] pip 패키지 관리자 설치 중..."
 $GetPipPath = Join-Path $PyDir 'get-pip.py'
 Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile $GetPipPath -UseBasicParsing
 & $PyExe $GetPipPath --no-warn-script-location
+if ($LASTEXITCODE -ne 0) { throw "pip 설치 실패 (exit code $LASTEXITCODE)" }
 Remove-Item $GetPipPath -Force
 
 $HasNvidia = $false
@@ -62,14 +63,16 @@ try {
 
 Write-Host "[3/4] PyTorch & Torchaudio 설치 중 ($(if ($HasNvidia) { 'CUDA GPU 가속' } else { 'CPU 모드' }))..."
 if ($HasNvidia) {
-  & $PyExe -m pip install --no-warn-script-location torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+  & $PyExe -m pip install --prefer-binary --no-warn-script-location torch torchaudio --index-url https://download.pytorch.org/whl/cu124
 } else {
-  & $PyExe -m pip install --no-warn-script-location torch torchaudio
+  & $PyExe -m pip install --prefer-binary --no-warn-script-location torch torchaudio
 }
+if ($LASTEXITCODE -ne 0) { throw "PyTorch/Torchaudio 설치 실패 (exit code $LASTEXITCODE)" }
 
 Write-Host "[4/4] 오디오 처리 및 AI 보컬 분리/싱크 패키지 설치 중..."
 $ortPkg = if ($HasNvidia) { 'onnxruntime-gpu' } else { 'onnxruntime' }
-& $PyExe -m pip install --no-warn-script-location numpy scipy soundfile $ortPkg audio-separator
+& $PyExe -m pip install --prefer-binary --no-warn-script-location numpy scipy soundfile $ortPkg audio-separator
+if ($LASTEXITCODE -ne 0) { throw "AI 오디오 패키지 설치 실패 (exit code $LASTEXITCODE)" }
 
 Write-Host ""
 Write-Host "포터블 Python AI 환경 준비 완료!" -ForegroundColor Green
