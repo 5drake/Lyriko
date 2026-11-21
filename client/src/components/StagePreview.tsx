@@ -40,6 +40,7 @@ interface StagePreviewProps {
   mrSyncing: boolean;
   mrSyncStatus: string;
   mrSyncMonitorOriginal: boolean;
+  usingYoutubeFallback?: boolean;
   audioError: string;
   selectedLineId?: string | null;
   resources: RenderResources;
@@ -71,6 +72,7 @@ export function StagePreview({
   mrSyncing,
   mrSyncStatus,
   mrSyncMonitorOriginal,
+  usingYoutubeFallback = false,
   audioError,
   resources,
   onTogglePlay,
@@ -268,9 +270,13 @@ export function StagePreview({
             <div className="inline-flex rounded-lg bg-black/35 p-0.5 border border-white/[0.06]">
               {(
                 [
-                  ['original', '원곡', Boolean(project.audioFileId)],
-                  ['mr', 'MR', Boolean(project.mrAudioFileId)],
-                  ['karaoke', '노래방', Boolean(project.karaokeAudioFileId)],
+                  ['original', '원곡', Boolean(project.audioFileId || project.youtubeVideoId)],
+                  ['mr', 'MR', Boolean(project.mrAudioFileId || project.mrYoutubeId)],
+                  [
+                    'karaoke',
+                    '노래방',
+                    Boolean(project.karaokeAudioFileId || project.karaokeYoutubeId),
+                  ],
                 ] as Array<['original' | 'mr' | 'karaoke', string, boolean]>
               ).map(([modeVal, label, hasTrack]) => {
                 const active = normalizeAudioPlayMode(project.audioMode) === modeVal;
@@ -296,8 +302,18 @@ export function StagePreview({
               })}
             </div>
 
+            {usingYoutubeFallback && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded-md bg-rose-500/10 text-rose-300 border border-rose-400/25 whitespace-nowrap"
+                title="로컬 워커 없이 YouTube 스트리밍으로 재생 중 (키 ±6 · 파형 · MP4 저장은 로컬 워커 연결 시 지원)"
+              >
+                YouTube 재생
+              </span>
+            )}
+
             {normalizeAudioPlayMode(project.audioMode) === 'mr' &&
-              !project.mrAudioFileId && (
+              !project.mrAudioFileId &&
+              !project.mrYoutubeId && (
                 <button
                   type="button"
                   onClick={() => onOpenSongSearch?.()}
@@ -309,7 +325,8 @@ export function StagePreview({
               )}
 
             {normalizeAudioPlayMode(project.audioMode) === 'karaoke' &&
-              !project.karaokeAudioFileId && (
+              !project.karaokeAudioFileId &&
+              !project.karaokeYoutubeId && (
                 <button
                   type="button"
                   onClick={() => onOpenSongSearch?.()}
@@ -335,33 +352,33 @@ export function StagePreview({
             {(() => {
               const isOriginalMode =
                 normalizeAudioPlayMode(project.audioMode) === 'original';
+              const isKeyDisabled = isOriginalMode || Boolean(usingYoutubeFallback);
               const keyShift = project.keyShift ?? 0;
               const displayedKey = isOriginalMode
                 ? '원키'
                 : keyShift === 0
                 ? '원키'
                 : `${keyShift > 0 ? '+' : ''}${keyShift}`;
+              const disabledHint = usingYoutubeFallback
+                ? '키 조절(±6)은 로컬 워커 연결 시 MR·노래방 모드에서 사용할 수 있습니다'
+                : '키 조절은 MR 또는 노래방 모드에서만 사용할 수 있습니다';
               return (
                 <div
                   className={`flex items-center gap-1 ${
-                    isOriginalMode ? 'opacity-45' : ''
+                    isKeyDisabled ? 'opacity-45' : ''
                   }`}
-                  title={
-                    isOriginalMode
-                      ? '키 조절은 MR 또는 노래방 모드에서만 사용할 수 있습니다'
-                      : undefined
-                  }
+                  title={isKeyDisabled ? disabledHint : undefined}
                 >
                   <span className="text-[11px] font-medium text-slate-400">키</span>
                   <div className="inline-flex items-center bg-black/35 border border-white/[0.07] rounded-lg overflow-hidden divide-x divide-white/[0.06]">
                     <button
                       type="button"
-                      disabled={isOriginalMode || keyShift <= -6}
+                      disabled={isKeyDisabled || keyShift <= -6}
                       onClick={() => onChangeKeyShift(keyShift - 1)}
                       className="flex h-6 w-6 items-center justify-center text-slate-300 hover:bg-white/[0.08] hover:text-white disabled:opacity-35 disabled:cursor-not-allowed transition"
                       title={
-                        isOriginalMode
-                          ? 'MR · 노래방 모드에서만 키 조절 가능'
+                        isKeyDisabled
+                          ? disabledHint
                           : '반음 내리기 (-1 키)'
                       }
                     >
@@ -370,16 +387,16 @@ export function StagePreview({
 
                     <button
                       type="button"
-                      disabled={isOriginalMode}
+                      disabled={isKeyDisabled}
                       onClick={() => onChangeKeyShift(0)}
                       className={`min-w-[38px] h-6 px-1.5 font-mono tabular-nums text-[11px] font-semibold transition disabled:cursor-not-allowed ${
-                        !isOriginalMode && keyShift !== 0
+                        !isKeyDisabled && keyShift !== 0
                           ? 'bg-sky-500/15 text-sky-200'
                           : 'text-slate-300 hover:text-white'
                       }`}
                       title={
-                        isOriginalMode
-                          ? '원곡은 항상 원키로 재생됩니다 (MR·노래방에서 조절)'
+                        isKeyDisabled
+                          ? disabledHint
                           : '클릭하면 원키(0)로 되돌립니다'
                       }
                     >
@@ -388,12 +405,12 @@ export function StagePreview({
 
                     <button
                       type="button"
-                      disabled={isOriginalMode || keyShift >= 6}
+                      disabled={isKeyDisabled || keyShift >= 6}
                       onClick={() => onChangeKeyShift(keyShift + 1)}
                       className="flex h-6 w-6 items-center justify-center text-slate-300 hover:bg-white/[0.08] hover:text-white disabled:opacity-35 disabled:cursor-not-allowed transition"
                       title={
-                        isOriginalMode
-                          ? 'MR · 노래방 모드에서만 키 조절 가능'
+                        isKeyDisabled
+                          ? disabledHint
                           : '반음 올리기 (+1 키)'
                       }
                     >

@@ -39,6 +39,7 @@ import { TopBar } from './components/TopBar';
 import { WorkerStatusModal } from './components/WorkerStatusModal';
 import type { RenderResources } from './engine/karaokeRenderer';
 import { analyzeAudioSpectrum } from './engine/spectrumAnalyzer';
+import { YoutubeFallbackController } from './engine/youtubeIframeAudio';
 import {
   getCommunityDbStatus,
   getLibraryRevisionDetail,
@@ -207,6 +208,8 @@ export default function App() {
   const redoStackRef = useRef<KaraokeProject[]>([]);
   const lastHistoryPushRef = useRef<number>(0);
   const toastTimerRef = useRef<number | null>(null);
+  const ytControllerRef = useRef<YoutubeFallbackController | null>(null);
+  const ytLoadedVideoIdRef = useRef<string>('');
 
   const audioMode = normalizeAudioPlayMode(project.audioMode);
   const keyShift = Math.max(-6, Math.min(6, Math.round(project.keyShift ?? 0)));
@@ -732,19 +735,101 @@ export default function App() {
     }));
   }, [updateProjectWithHistory]);
 
-  // Sync audio playbackRate and volume
+  // Master playback loop (local audio, YouTube IFrame fallback, OR virtual clock)
+  const hasAnyAudioTrack = Boolean(
+    project.audioFileId || project.mrAudioFileId || project.karaokeAudioFileId
+  );
+
+  const activeYtTarget = useMemo(() => {
+    if (hasAnyAudioTrack) return null;
+    if (audioMode === 'karaoke' && project.karaokeYoutubeId) {
+      return {
+        videoId: project.karaokeYoutubeId,
+        offsetSec: karaokeSyncOffset,
+      };
+    }
+    if ((audioMode === 'mr' || audioMode === 'karaoke') && project.mrYoutubeId) {
+      return {
+        videoId: project.mrYoutubeId,
+        offsetSec: mrSyncOffset,
+      };
+    }
+    if (project.youtubeVideoId) {
+      return {
+        videoId: project.youtubeVideoId,
+        offsetSec: 0,
+      };
+    }
+    return null;
+  }, [
+    hasAnyAudioTrack,
+    audioMode,
+    project.karaokeYoutubeId,
+    project.mrYoutubeId,
+    project.youtubeVideoId,
+    karaokeSyncOffset,
+    mrSyncOffset,
+  ]);
+  const usingYoutubeFallback = Boolean(activeYtTarget);
+
+  // Clean up YouTube fallback controller on unmount
+  useEffect(() => {
+    return () => {
+      ytControllerRef.current?.destroy();
+      ytControllerRef.current = null;
+    };
+  }, []);
+
+  // Load / switch YouTube fallback video whenever local audio isn't attached
+  useEffect(() => {
+    if (!activeYtTarget) {
+      ytLoadedVideoIdRef.current = '';
+      ytControllerRef.current?.pause();
+      return;
+    }
+
+    if (!ytControllerRef.current) {
+      ytControllerRef.current = new YoutubeFallbackController({
+        onStateChange: (state) => {
+          if (state === 0) {
+            setIsPlaying(false);
+          }
+        },
+        onError: (_code, msg) => {
+          setAudioError(msg);
+          setIsPlaying(false);
+        },
+      });
+    }
+
+    if (ytLoadedVideoIdRef.current !== activeYtTarget.videoId) {
+      ytLoadedVideoIdRef.current = activeYtTarget.videoId;
+      const startYtSec = Math.max(0, currentTimeRef.current - activeYtTarget.offsetSec);
+      const shouldAutoplay =
+        isPlayingRef.current &&
+        (activeYtTarget.offsetSec <= 0 || currentTimeRef.current >= activeYtTarget.offsetSec);
+      void ytControllerRef.current.load(
+        activeYtTarget.videoId,
+        startYtSec,
+        shouldAutoplay,
+        volumeRef.current,
+        playbackRateRef.current
+      );
+    }
+  }, [activeYtTarget]);
+
+  // Sync audio playbackRate and volume across local <audio> and YouTube fallback
   useEffect(() => {
     const audio = audioElRef.current;
     if (audio) {
       audio.playbackRate = playbackRate;
       audio.volume = volume;
     }
+    if (ytControllerRef.current) {
+      ytControllerRef.current.setPlaybackRate(playbackRate);
+      ytControllerRef.current.setVolume(volume);
+    }
   }, [playbackRate, volume]);
-
-  // Master playback loop (audio-backed OR virtual clock when no audio attached)
-  const hasAnyAudioTrack = Boolean(
-    project.audioFileId || project.mrAudioFileId || project.karaokeAudioFileId
-  );
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -753,6 +838,7 @@ export default function App() {
 
     const tick = (now: number) => {
       const audio = audioElRef.current;
+      const yt = ytControllerRef.current;
       if (hasAnyAudioTrack && audio && audio.src) {
         if (!audio.paused) {
           setCurrentTime(audio.currentTime);
@@ -760,6 +846,42 @@ export default function App() {
         if (audio.ended) {
           setIsPlaying(false);
           return;
+        }
+      } else if (activeYtTarget && yt) {
+        if (
+          activeYtTarget.offsetSec > 0 &&
+          currentTimeRef.current < activeYtTarget.offsetSec
+        ) {
+          const dt = ((now - lastFrameTsRef.current) / 1000) * playbackRate;
+          lastFrameTsRef.current = now;
+          const next = currentTimeRef.current + dt;
+          if (yt.isPlayingState()) {
+            yt.pause();
+          }
+          if (next >= activeYtTarget.offsetSec) {
+            currentTimeRef.current = activeYtTarget.offsetSec;
+            setCurrentTime(activeYtTarget.offsetSec);
+            yt.seekTo(0);
+            yt.play();
+          } else {
+            currentTimeRef.current = next;
+            setCurrentTime(next);
+          }
+        } else {
+          lastFrameTsRef.current = now;
+          if (yt.isPlayingState()) {
+            const rawYtTime = yt.getCurrentTime();
+            const synced = Math.min(project.duration, rawYtTime + activeYtTarget.offsetSec);
+            if (Number.isFinite(synced) && synced >= 0) {
+              currentTimeRef.current = synced;
+              setCurrentTime(synced);
+            }
+            if (synced >= project.duration) {
+              yt.pause();
+              setIsPlaying(false);
+              return;
+            }
+          }
         }
       } else {
         const dt = ((now - lastFrameTsRef.current) / 1000) * playbackRate;
@@ -778,7 +900,7 @@ export default function App() {
 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [isPlaying, playbackRate, hasAnyAudioTrack, project.duration]);
+  }, [isPlaying, playbackRate, hasAnyAudioTrack, activeYtTarget, project.duration]);
 
   // Keep background <video> synchronized with preview currentTime
   useEffect(() => {
@@ -1275,9 +1397,9 @@ export default function App() {
           return;
         }
 
-        if (audioElRef.current && !audioElRef.current.paused) {
-          audioElRef.current.pause();
-        }
+        clearAudioElementSource(audioElRef.current);
+        setAudioBuffer(null);
+        setSpectrum(undefined);
         setIsPlaying(false);
         setCurrentTime(0);
         setMrSyncMonitorOriginal(false);
@@ -1324,8 +1446,9 @@ export default function App() {
 
         if (!workerHealth?.ok) {
           setLibraryLoadStatus(
-            `"${record.title}" 가사·싱크·발음 적용 완료 (음원 자동 연결은 로컬 워커 필요)`
+            `"${record.title}" 불러오기 완료! YouTube 스트리밍으로 바로 재생할 수 있습니다.`
           );
+          setLibraryModalOpen(false);
           return;
         }
 
@@ -1553,14 +1676,17 @@ export default function App() {
   const handleTogglePlay = useCallback(() => {
     stopAudioScrub();
     const audio = audioElRef.current;
+    const yt = ytControllerRef.current;
     if (isPlaying) {
       if (audio && !audio.paused) audio.pause();
+      if (yt) yt.pause();
       setIsPlaying(false);
     } else {
       setAudioError('');
       let startAt = currentTime;
       if (startAt >= project.duration - 0.1) {
         startAt = 0;
+        currentTimeRef.current = 0;
         setCurrentTime(0);
       }
       if (hasAnyAudioTrack && audio && audio.src) {
@@ -1576,6 +1702,23 @@ export default function App() {
           );
           setIsPlaying(false);
         });
+      } else if (activeYtTarget && yt) {
+        const ytStart = Math.max(0, startAt - activeYtTarget.offsetSec);
+        yt.setVolume(volume);
+        yt.setPlaybackRate(playbackRate);
+        if (ytLoadedVideoIdRef.current !== activeYtTarget.videoId) {
+          ytLoadedVideoIdRef.current = activeYtTarget.videoId;
+          void yt.load(
+            activeYtTarget.videoId,
+            ytStart,
+            startAt >= activeYtTarget.offsetSec,
+            volume,
+            playbackRate
+          );
+        } else if (startAt >= activeYtTarget.offsetSec) {
+          yt.seekTo(ytStart);
+          yt.play();
+        }
       }
       setIsPlaying(true);
     }
@@ -1585,6 +1728,7 @@ export default function App() {
     currentTime,
     project.duration,
     hasAnyAudioTrack,
+    activeYtTarget,
     volume,
     playbackRate,
   ]);
@@ -1595,17 +1739,20 @@ export default function App() {
     setCurrentTime(clamped);
     if (audioElRef.current && hasAnyAudioTrack) {
       audioElRef.current.currentTime = clamped;
+    } else if (activeYtTarget && ytControllerRef.current) {
+      ytControllerRef.current.seekTo(Math.max(0, clamped - activeYtTarget.offsetSec));
     }
     if (bgVideo && Number.isFinite(bgVideo.duration) && bgVideo.duration > 0) {
       bgVideo.currentTime = clamped % bgVideo.duration;
     }
-  }, [project.duration, hasAnyAudioTrack, bgVideo]);
+  }, [project.duration, hasAnyAudioTrack, activeYtTarget, bgVideo]);
 
   const handleStepFrame = useCallback(
     (frameDelta: number) => {
       if (isPlayingRef.current) {
         const audio = audioElRef.current;
         if (audio && !audio.paused) audio.pause();
+        ytControllerRef.current?.pause();
         isPlayingRef.current = false;
         setIsPlaying(false);
       }
@@ -1744,6 +1891,7 @@ export default function App() {
             mrSyncing={mrSyncing}
             mrSyncStatus={mrSyncStatus}
             mrSyncMonitorOriginal={mrSyncMonitorOriginal}
+            usingYoutubeFallback={usingYoutubeFallback}
             audioError={audioError}
             selectedLineId={selectedLineId}
             resources={resources}
