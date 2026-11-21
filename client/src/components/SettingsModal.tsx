@@ -374,6 +374,15 @@ export function SettingsModal({
                 </p>
                 <div className="flex flex-wrap items-center gap-2 pt-0.5">
                   <a
+                    href="https://5drake.github.io/Lyriko/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-sky-400/30 bg-sky-500/15 px-2.5 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-500/25 transition"
+                  >
+                    <span>웹 앱 · Live</span>
+                    <ExternalLink className="h-3 w-3 opacity-70" />
+                  </a>
+                  <a
                     href="https://github.com/5drake/Lyriko"
                     target="_blank"
                     rel="noopener noreferrer"

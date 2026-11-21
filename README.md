@@ -2,6 +2,7 @@
 
 > 일본어 노래의 **후리가나 · 한국어 발음(촉음/다중독음 자동 판별) · 한국어 해석 · AI 음소 정밀 싱크 · 1080p MP4 가라오케 영상**을 한곳에서 만드는 스튜디오
 
+- **Live Demo (Web)**: https://5drake.github.io/Lyriko/
 - **GitHub**: https://github.com/5drake/Lyriko
 - **Portable Worker Releases**: https://github.com/5drake/Lyriko/releases
 
@@ -74,10 +75,11 @@ npm run build:worker
 
 ---
 
-## 배포 가이드 (Vercel + Supabase)
+## 배포 가이드 (GitHub Pages / Vercel + Supabase)
 
-1. **웹 프론트엔드 (Vercel)**
-   - [vercel.json](./vercel.json) 설정으로 `npm run build` → `dist/client` 정적 배포를 바로 지원합니다.
+1. **웹 프론트엔드 (GitHub Pages / Vercel)**
+   - **GitHub Pages**: `npm run deploy:pages` 실행 시 `dist/client`를 `gh-pages` 브랜치에 빌드·배포합니다 ([Live Demo](https://5drake.github.io/Lyriko/)).
+   - **Vercel**: [vercel.json](./vercel.json) 설정으로 `npm run build` → `dist/client` 정적 배포를 바로 지원합니다.
 2. **공용 곡 라이브러리 DB (Supabase, 선택)**
    - [supabase/schema.sql](./supabase/schema.sql)을 Supabase SQL Editor에서 실행합니다.
    - Vercel 환경변수에 `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`를 설정합니다.

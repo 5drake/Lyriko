@@ -289,6 +289,39 @@ function writeLocalCacheMap(map: Record<string, CommunitySongAnalysis>): void {
   }
 }
 
+let starterCatalogPromise: Promise<Record<string, CommunitySongAnalysis>> | null = null;
+
+async function loadStarterCatalogMap(): Promise<Record<string, CommunitySongAnalysis>> {
+  if (typeof window === 'undefined') return {};
+  if (!starterCatalogPromise) {
+    starterCatalogPromise = (async () => {
+      try {
+        const base = (import.meta.env.BASE_URL || './').replace(/\/?$/, '/');
+        const res = await fetch(`${base}starter-library.json`, { cache: 'force-cache' });
+        if (!res.ok) return {};
+        const raw = (await res.json()) as CommunitySongAnalysis[];
+        if (!Array.isArray(raw)) return {};
+        const map: Record<string, CommunitySongAnalysis> = {};
+        for (const item of raw) {
+          if (item && item.youtubeVideoId && Array.isArray(item.lines) && item.lines.length > 0) {
+            map[item.youtubeVideoId] = normalizeRecord(item);
+          }
+        }
+        return map;
+      } catch {
+        return {};
+      }
+    })();
+  }
+  return starterCatalogPromise;
+}
+
+async function readMergedLocalMap(): Promise<Record<string, CommunitySongAnalysis>> {
+  const starter = await loadStarterCatalogMap();
+  const local = readLocalCacheMap();
+  return { ...starter, ...local };
+}
+
 function normalizeRecord(rec: CommunitySongAnalysis): CommunitySongAnalysis {
   const lines = Array.isArray(rec.lines) ? rec.lines : [];
   const status = normalizeStatus(rec.status, 'auto');
@@ -567,7 +600,7 @@ export async function listLibrarySongs(opts?: {
     // fall through to browser localStorage cache
   }
 
-  const localResult = filterAndSortRecords(Object.values(readLocalCacheMap()), opts);
+  const localResult = filterAndSortRecords(Object.values(await readMergedLocalMap()), opts);
   return { ...localResult, provider: 'local-cache' };
 }
 
@@ -630,7 +663,7 @@ export async function lookupSongAnalysis(youtubeVideoId: string): Promise<{
     // fall through
   }
 
-  const local = readLocalCacheMap();
+  const local = await readMergedLocalMap();
   const hit = local[vid];
   if (hit && Array.isArray(hit.lines) && hit.lines.length > 0) {
     return { record: normalizeRecord(hit), source: 'local-cache' };
@@ -964,7 +997,7 @@ export async function listLibraryRevisions(
     // fallback to local-cache
   }
 
-  const local = readLocalCacheMap();
+  const local = await readMergedLocalMap();
   const hit = local[vid] ? normalizeRecord(local[vid]) : undefined;
   if (!hit) return null;
   return {
@@ -1003,7 +1036,7 @@ export async function getLibraryRevisionDetail(
     // fallback
   }
 
-  const local = readLocalCacheMap();
+  const local = await readMergedLocalMap();
   const hit = local[vid] ? normalizeRecord(local[vid]) : undefined;
   const rev = hit?.revisions?.find((r) => r.revId === revId);
   if (!hit || !rev) return null;
@@ -1289,6 +1322,12 @@ export async function upvoteLibrarySong(
   }
 
   const local = readLocalCacheMap();
+  if (!local[vid]) {
+    const starter = await loadStarterCatalogMap();
+    if (starter[vid]) {
+      local[vid] = { ...starter[vid] };
+    }
+  }
   if (local[vid]) {
     local[vid].upvotes = Math.max(0, Number(local[vid].upvotes ?? 1) + delta);
     writeLocalCacheMap(local);

@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Lyriko — Japanese Karaoke, Korean Pronunciation, AI Phoneme Sync & 1080p MP4 Studio",
   "license": "MIT",
-  "homepage": "https://github.com/5drake/Lyriko",
+  "homepage": "https://5drake.github.io/Lyriko/",
   "repository": {
     "type": "git",
     "url": "https://github.com/5drake/Lyriko.git"
@@ -16,6 +16,7 @@
     "dev:client": "npx vite",
     "build": "vite build",
     "build:worker": "powershell -ExecutionPolicy Bypass -File worker/build-portable.ps1",
+    "deploy:pages": "powershell -ExecutionPolicy Bypass -File scripts/deploy-pages.ps1",
     "start": "npx tsx server/index.ts",
     "typecheck": "tsc --noEmit"
   },

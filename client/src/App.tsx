@@ -44,6 +44,7 @@ import {
   getCommunityDbStatus,
   getLibraryRevisionDetail,
   getLibrarySongDetail,
+  listLibrarySongs,
   lookupSongAnalysis,
   publishSongAnalysis,
   type PublishSongOptions,
@@ -367,7 +368,58 @@ export default function App() {
       setCurrentTime(12.8); // Right in the middle of line 2 with line 3 preview visible!
       clearAudioElementSource(audioElRef.current);
     } catch {
-      // ignore initial offline error
+      // On static hosts without a local worker, load the top starter library song cleanly
+      try {
+        const list = await listLibrarySongs({ sort: 'recommended', limit: 1 });
+        const first = list.items[0];
+        const detail = first ? await getLibrarySongDetail(first.youtubeVideoId) : null;
+        if (detail && Array.isArray(detail.lines) && detail.lines.length > 0) {
+          const sampleLine = detail.lines[1] ?? detail.lines[0];
+          const sampleTime = sampleLine
+            ? Number(
+                (
+                  sampleLine.startTime +
+                  (sampleLine.endTime - sampleLine.startTime) * 0.45
+                ).toFixed(2)
+              )
+            : 0;
+          const nextProject = createDefaultProject();
+          resolvedAudioSpecRef.current = '';
+          ytLoadedVideoIdRef.current = '';
+          setMrSyncMonitorOriginal(false);
+          setMrSyncStatus('');
+          setProject({
+            ...nextProject,
+            title: detail.title,
+            artist: detail.artist,
+            duration: Number(detail.duration) || 240,
+            youtubeVideoId: detail.youtubeVideoId,
+            mrYoutubeId: detail.mrYoutubeId,
+            mrSyncOffset: Number(detail.mrSyncOffset ?? 0),
+            karaokeYoutubeId: detail.karaokeYoutubeId,
+            karaokeSyncOffset: Number(detail.karaokeSyncOffset ?? 0),
+            audioMode: 'original',
+            keyShift: 0,
+            syncOffset: 0,
+            lines: detail.lines,
+            settings: {
+              ...nextProject.settings,
+              albumArtUrl:
+                detail.artworkUrl ||
+                `https://i.ytimg.com/vi/${detail.youtubeVideoId}/hqdefault.jpg`,
+            },
+          });
+          setAudioBuffer(null);
+          setSpectrum(undefined);
+          setAudioError('');
+          setSelectedLineId(sampleLine?.id ?? detail.lines[0]?.id ?? null);
+          setIsPlaying(false);
+          setCurrentTime(sampleTime);
+          clearAudioElementSource(audioElRef.current);
+        }
+      } catch {
+        // ignore offline fallback failure
+      }
     }
   }, []);
 
