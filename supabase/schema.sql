@@ -1,4 +1,4 @@
--- UtaKana Studio: Shared Karaoke Analysis Cache & Revision Schema for Supabase (PostgreSQL)
+-- Lyriko: Shared Karaoke Analysis Cache & Revision Schema for Supabase (PostgreSQL)
 -- Run this once in your Supabase SQL Editor.
 
 create table if not exists public.song_analyses (
@@ -68,9 +68,6 @@ create table if not exists public.song_reports (
   created_at timestamptz not null default now()
 );
 
-create index if not exists idx_song_analyses_video_id
-  on public.song_analyses (youtube_video_id);
-
 create index if not exists idx_song_analyses_updated_at
   on public.song_analyses (updated_at desc);
 
@@ -86,6 +83,7 @@ create index if not exists idx_song_reports_video_id
 create or replace function public.set_song_analyses_updated_at()
 returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
   new.updated_at = now();
@@ -157,3 +155,8 @@ create policy "Public insert song_reports"
     length(youtube_video_id) between 6 and 32
     and length(note) <= 200
   );
+
+grant usage on schema public to anon, authenticated;
+grant select, insert, update on public.song_analyses to anon, authenticated;
+grant select, insert on public.song_revisions to anon, authenticated;
+grant insert on public.song_reports to anon, authenticated;

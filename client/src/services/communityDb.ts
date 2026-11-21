@@ -116,7 +116,9 @@ export function saveContributorName(name: string): void {
 function getSupabaseCredentials(): SupabaseCredentials | null {
   const envUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim() || '';
   const envKey =
-    (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || '';
+    (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined)?.trim() ||
+    (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() ||
+    '';
   if (envUrl && envKey) {
     return {
       url: envUrl.replace(/\/+$/, ''),
@@ -140,6 +142,19 @@ function getSupabaseCredentials(): SupabaseCredentials | null {
     }
   }
   return null;
+}
+
+function supabaseHeaders(
+  creds: SupabaseCredentials,
+  extra?: Record<string, string>
+): Record<string, string> {
+  return {
+    apikey: creds.anonKey,
+    ...(creds.anonKey.startsWith('sb_publishable_')
+      ? {}
+      : { Authorization: `Bearer ${creds.anonKey}` }),
+    ...extra,
+  };
 }
 
 export function getClientVoterId(): string {
@@ -549,10 +564,7 @@ export async function listLibrarySongs(opts?: {
         `?select=youtube_video_id,lyrics_hash,pipeline_version,title,artist,duration,artwork_url,mr_youtube_id,mr_sync_offset,karaoke_youtube_id,karaoke_sync_offset,disambiguated_count,device_label,upvotes,status,locked,author_name,edit_note,active_revision_id,revision_count,report_count,hidden,updated_at,lines_json` +
         `&order=${orderParam}&limit=100`;
       const res = await fetch(endpoint, {
-        headers: {
-          apikey: creds.anonKey,
-          Authorization: `Bearer ${creds.anonKey}`,
-        },
+        headers: supabaseHeaders(creds),
         signal: AbortSignal.timeout(4500),
       });
       if (res.ok) {
@@ -618,10 +630,7 @@ export async function lookupSongAnalysis(youtubeVideoId: string): Promise<{
         `${creds.url}/rest/v1/song_analyses` +
         `?youtube_video_id=eq.${encodeURIComponent(vid)}&limit=1`;
       const res = await fetch(endpoint, {
-        headers: {
-          apikey: creds.anonKey,
-          Authorization: `Bearer ${creds.anonKey}`,
-        },
+        headers: supabaseHeaders(creds),
         signal: AbortSignal.timeout(4500),
       });
       if (res.ok) {
@@ -727,10 +736,7 @@ export async function publishSongAnalysis(
       const checkRes = await fetch(
         `${creds.url}/rest/v1/song_analyses?youtube_video_id=eq.${encodeURIComponent(vid)}&select=youtube_video_id,locked,status,revision_count&limit=1`,
         {
-          headers: {
-            apikey: creds.anonKey,
-            Authorization: `Bearer ${creds.anonKey}`,
-          },
+          headers: supabaseHeaders(creds),
           signal: AbortSignal.timeout(4000),
         }
       );
@@ -751,46 +757,42 @@ export async function publishSongAnalysis(
       const nextVersion = Math.max(1, Number(existingRow?.revision_count ?? 0) + 1);
       const revId = `rev_${Date.now().toString(36)}_v${nextVersion}`;
       const revStatus: LibraryQualityStatus = mode === 'auto' ? 'auto' : 'edited';
-
-      // Always append revision record
-      await fetch(`${creds.url}/rest/v1/song_revisions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: creds.anonKey,
-          Authorization: `Bearer ${creds.anonKey}`,
-          Prefer: 'return=minimal',
-        },
-        body: JSON.stringify({
-          youtube_video_id: vid,
-          rev_id: revId,
-          version: nextVersion,
-          status: revStatus,
-          author_name: authorName,
-          edit_note: editNote,
-          lyrics_hash: lyricsHash,
-          mr_youtube_id: payload.mrYoutubeId ?? null,
-          mr_sync_offset: payload.mrSyncOffset ?? 0,
-          karaoke_youtube_id: payload.karaokeYoutubeId ?? null,
-          karaoke_sync_offset: payload.karaokeSyncOffset ?? 0,
-          lines_json: payload.lines,
-          disambiguated_count: payload.disambiguatedCount ?? 0,
-          device_label: payload.deviceLabel ?? null,
-        }),
-        signal: AbortSignal.timeout(4500),
-      }).catch(() => undefined);
+      const revisionRow = {
+        youtube_video_id: vid,
+        rev_id: revId,
+        version: nextVersion,
+        status: revStatus,
+        author_name: authorName,
+        edit_note: editNote,
+        lyrics_hash: lyricsHash,
+        mr_youtube_id: payload.mrYoutubeId ?? null,
+        mr_sync_offset: payload.mrSyncOffset ?? 0,
+        karaoke_youtube_id: payload.karaokeYoutubeId ?? null,
+        karaoke_sync_offset: payload.karaokeSyncOffset ?? 0,
+        lines_json: payload.lines,
+        disambiguated_count: payload.disambiguatedCount ?? 0,
+        device_label: payload.deviceLabel ?? null,
+      };
 
       if (existingRow?.locked) {
+        await fetch(`${creds.url}/rest/v1/song_revisions`, {
+          method: 'POST',
+          headers: supabaseHeaders(creds, {
+            'Content-Type': 'application/json',
+            Prefer: 'return=minimal',
+          }),
+          body: JSON.stringify(revisionRow),
+          signal: AbortSignal.timeout(4500),
+        }).catch(() => undefined);
+
         await fetch(
           `${creds.url}/rest/v1/song_analyses?youtube_video_id=eq.${encodeURIComponent(vid)}`,
           {
             method: 'PATCH',
-            headers: {
+            headers: supabaseHeaders(creds, {
               'Content-Type': 'application/json',
-              apikey: creds.anonKey,
-              Authorization: `Bearer ${creds.anonKey}`,
               Prefer: 'return=minimal',
-            },
+            }),
             body: JSON.stringify({ revision_count: nextVersion }),
             signal: AbortSignal.timeout(4000),
           }
@@ -830,12 +832,10 @@ export async function publishSongAnalysis(
 
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: {
+        headers: supabaseHeaders(creds, {
           'Content-Type': 'application/json',
-          apikey: creds.anonKey,
-          Authorization: `Bearer ${creds.anonKey}`,
           Prefer: 'resolution=merge-duplicates,return=minimal',
-        },
+        }),
         body: JSON.stringify(bodyRow),
         signal: AbortSignal.timeout(5000),
       });
@@ -848,6 +848,18 @@ export async function publishSongAnalysis(
           error: `Supabase HTTP ${res.status}: ${txt.slice(0, 120)}`,
         };
       }
+
+      // Insert child revision after parent song_analyses exists (FK constraint)
+      await fetch(`${creds.url}/rest/v1/song_revisions`, {
+        method: 'POST',
+        headers: supabaseHeaders(creds, {
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        }),
+        body: JSON.stringify(revisionRow),
+        signal: AbortSignal.timeout(4500),
+      }).catch(() => undefined);
+
       return { savedTo: 'supabase', ok: true, version: nextVersion };
     } catch (err) {
       return {
@@ -985,6 +997,70 @@ export async function listLibraryRevisions(
   const vid = (youtubeVideoId || '').trim();
   if (!vid) return null;
 
+  const creds = getSupabaseCredentials();
+  if (creds) {
+    try {
+      const [songRes, revsRes] = await Promise.all([
+        fetch(
+          `${creds.url}/rest/v1/song_analyses?youtube_video_id=eq.${encodeURIComponent(vid)}&select=youtube_video_id,active_revision_id,status,locked,report_count,hidden&limit=1`,
+          { headers: supabaseHeaders(creds), signal: AbortSignal.timeout(4000) }
+        ),
+        fetch(
+          `${creds.url}/rest/v1/song_revisions?youtube_video_id=eq.${encodeURIComponent(vid)}&select=rev_id,version,status,author_name,edit_note,lyrics_hash,lines_json,created_at&order=version.desc&limit=30`,
+          { headers: supabaseHeaders(creds), signal: AbortSignal.timeout(4000) }
+        ),
+      ]);
+      if (songRes.ok && revsRes.ok) {
+        const songRows = (await songRes.json()) as Array<{
+          youtube_video_id: string;
+          active_revision_id?: string | null;
+          status?: string | null;
+          locked?: boolean | null;
+          report_count?: number | null;
+          hidden?: boolean | null;
+        }>;
+        const revRows = (await revsRes.json()) as Array<{
+          rev_id: string;
+          version: number;
+          status?: string | null;
+          author_name?: string | null;
+          edit_note?: string | null;
+          lyrics_hash?: string | null;
+          lines_json?: LyricLine[] | null;
+          created_at?: string | null;
+        }>;
+        const song = songRows[0];
+        if (song) {
+          return {
+            youtubeVideoId: song.youtube_video_id,
+            activeRevisionId: song.active_revision_id ?? undefined,
+            status: normalizeStatus(song.status, 'auto'),
+            locked: Boolean(song.locked),
+            reportCount: Number(song.report_count ?? 0),
+            hidden: Boolean(song.hidden),
+            reports: [],
+            revisions: revRows.map((r) => {
+              const lines = Array.isArray(r.lines_json) ? r.lines_json : [];
+              return {
+                revId: r.rev_id,
+                version: Number(r.version ?? 1),
+                status: normalizeStatus(r.status, 'edited'),
+                authorName: r.author_name || '익명 기여자',
+                editNote: r.edit_note || '',
+                createdAt: r.created_at || new Date().toISOString(),
+                lineCount: lines.length,
+                hasTranslation: lines.some((l) => Boolean(l.koTranslation?.trim())),
+                lyricsHash: r.lyrics_hash || '',
+              };
+            }),
+          };
+        }
+      }
+    } catch {
+      // fall through
+    }
+  }
+
   try {
     const res = await fetch(
       workerUrl(`/api/library/${encodeURIComponent(vid)}/revisions`),
@@ -1020,6 +1096,61 @@ export async function getLibraryRevisionDetail(
 ): Promise<CommunitySongAnalysis | null> {
   const vid = (youtubeVideoId || '').trim();
   if (!vid || !revId) return null;
+
+  const creds = getSupabaseCredentials();
+  if (creds) {
+    try {
+      const [songRes, revRes] = await Promise.all([
+        fetch(
+          `${creds.url}/rest/v1/song_analyses?youtube_video_id=eq.${encodeURIComponent(vid)}&limit=1`,
+          { headers: supabaseHeaders(creds), signal: AbortSignal.timeout(4000) }
+        ),
+        fetch(
+          `${creds.url}/rest/v1/song_revisions?youtube_video_id=eq.${encodeURIComponent(vid)}&rev_id=eq.${encodeURIComponent(revId)}&limit=1`,
+          { headers: supabaseHeaders(creds), signal: AbortSignal.timeout(4000) }
+        ),
+      ]);
+      if (songRes.ok && revRes.ok) {
+        const songRows = (await songRes.json()) as SupabaseRow[];
+        const revRows = (await revRes.json()) as Array<{
+          rev_id: string;
+          status?: string | null;
+          author_name?: string | null;
+          edit_note?: string | null;
+          lyrics_hash?: string | null;
+          mr_youtube_id?: string | null;
+          mr_sync_offset?: number | null;
+          karaoke_youtube_id?: string | null;
+          karaoke_sync_offset?: number | null;
+          lines_json?: LyricLine[] | null;
+          created_at?: string | null;
+        }>;
+        const songRow = songRows[0];
+        const revRow = revRows[0];
+        if (songRow && revRow && Array.isArray(revRow.lines_json)) {
+          const base = rowToRecord(songRow);
+          return {
+            ...base,
+            lines: revRow.lines_json,
+            lyricsHash: revRow.lyrics_hash || base.lyricsHash,
+            mrYoutubeId: revRow.mr_youtube_id ?? base.mrYoutubeId,
+            mrSyncOffset: Number(revRow.mr_sync_offset ?? base.mrSyncOffset ?? 0),
+            karaokeYoutubeId: revRow.karaoke_youtube_id ?? base.karaokeYoutubeId,
+            karaokeSyncOffset: Number(
+              revRow.karaoke_sync_offset ?? base.karaokeSyncOffset ?? 0
+            ),
+            status: normalizeStatus(revRow.status, 'edited'),
+            authorName: revRow.author_name || base.authorName,
+            editNote: revRow.edit_note || base.editNote,
+            activeRevisionId: revRow.rev_id,
+            updatedAt: revRow.created_at || base.updatedAt,
+          };
+        }
+      }
+    } catch {
+      // fall through
+    }
+  }
 
   try {
     const res = await fetch(
@@ -1123,6 +1254,65 @@ export async function reportLibrarySong(
 }> {
   const vid = (youtubeVideoId || '').trim();
   if (!vid) return { ok: false };
+
+  const creds = getSupabaseCredentials();
+  if (creds) {
+    try {
+      const cleanNote = note.trim().slice(0, 180);
+      const repRes = await fetch(`${creds.url}/rest/v1/song_reports`, {
+        method: 'POST',
+        headers: supabaseHeaders(creds, {
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        }),
+        body: JSON.stringify({
+          youtube_video_id: vid,
+          reason,
+          note: cleanNote,
+        }),
+        signal: AbortSignal.timeout(4000),
+      });
+      if (repRes.ok) {
+        const curRes = await fetch(
+          `${creds.url}/rest/v1/song_analyses?youtube_video_id=eq.${encodeURIComponent(vid)}&select=report_count,locked,status,hidden&limit=1`,
+          { headers: supabaseHeaders(creds), signal: AbortSignal.timeout(3500) }
+        );
+        const curRows = curRes.ok
+          ? ((await curRes.json()) as Array<{
+              report_count?: number | null;
+              locked?: boolean | null;
+              status?: string | null;
+              hidden?: boolean | null;
+            }>)
+          : [];
+        const cur = curRows[0];
+        const nextCount = Number(cur?.report_count ?? 0) + 1;
+        const shouldHide =
+          Boolean(cur?.hidden) ||
+          (!cur?.locked &&
+            cur?.status !== 'verified' &&
+            nextCount >= AUTO_HIDE_REPORT_THRESHOLD);
+        await fetch(
+          `${creds.url}/rest/v1/song_analyses?youtube_video_id=eq.${encodeURIComponent(vid)}`,
+          {
+            method: 'PATCH',
+            headers: supabaseHeaders(creds, {
+              'Content-Type': 'application/json',
+              Prefer: 'return=minimal',
+            }),
+            body: JSON.stringify({
+              report_count: nextCount,
+              hidden: shouldHide,
+            }),
+            signal: AbortSignal.timeout(4000),
+          }
+        ).catch(() => undefined);
+        return { ok: true, reportCount: nextCount, hidden: shouldHide };
+      }
+    } catch {
+      // fall through
+    }
+  }
 
   try {
     const res = await fetch(
@@ -1255,10 +1445,7 @@ export async function upvoteLibrarySong(
       const getRes = await fetch(
         `${creds.url}/rest/v1/song_analyses?youtube_video_id=eq.${encodeURIComponent(vid)}&select=upvotes&limit=1`,
         {
-          headers: {
-            apikey: creds.anonKey,
-            Authorization: `Bearer ${creds.anonKey}`,
-          },
+          headers: supabaseHeaders(creds),
           signal: AbortSignal.timeout(4000),
         }
       );
@@ -1269,12 +1456,10 @@ export async function upvoteLibrarySong(
           `${creds.url}/rest/v1/song_analyses?youtube_video_id=eq.${encodeURIComponent(vid)}`,
           {
             method: 'PATCH',
-            headers: {
+            headers: supabaseHeaders(creds, {
               'Content-Type': 'application/json',
-              apikey: creds.anonKey,
-              Authorization: `Bearer ${creds.anonKey}`,
               Prefer: 'return=representation',
-            },
+            }),
             body: JSON.stringify({ upvotes: nextVal }),
             signal: AbortSignal.timeout(4000),
           }
