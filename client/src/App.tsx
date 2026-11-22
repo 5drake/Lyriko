@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Library, X } from 'lucide-react';
 import {
   createDefaultProject,
   normalizeAudioPlayMode,
@@ -23,6 +24,7 @@ import {
 import { ExportModal } from './components/ExportModal';
 import { LeftSidebar } from './components/LeftSidebar';
 import { LyricInspector } from './components/LyricInspector';
+import { MobileLyricsView } from './components/MobileLyricsView';
 import {
   OnboardingTour,
   TOUR_STORAGE_KEY,
@@ -166,8 +168,16 @@ export default function App() {
   const [libraryVersion, setLibraryVersion] = useState(0);
   const [libraryLoadingId, setLibraryLoadingId] = useState<string | null>(null);
   const [libraryLoadStatus, setLibraryLoadStatus] = useState('');
+  const [isMobile, setIsMobile] = useState<boolean>(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false;
+    return window.matchMedia('(max-width: 1023px)').matches;
+  });
+  const [ytDirectTapNeeded, setYtDirectTapNeeded] = useState(false);
   const [tourOpen, setTourOpen] = useState(() => {
     try {
+      if (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 1023px)').matches) {
+        return false;
+      }
       return window.localStorage.getItem(TOUR_STORAGE_KEY) !== '1';
     } catch {
       return false;
@@ -340,17 +350,33 @@ export default function App() {
     }
   }, [uiFontSize]);
 
-  const openSongSearchModal = useCallback((initialQuery?: string) => {
-    setLibraryHubTab('search');
-    setLibraryInitialPublish(false);
-    if (initialQuery?.trim()) {
-      setLibraryInitialQuery(initialQuery.trim());
-      setLibrarySearchNonce((n) => n + 1);
-    } else {
-      setLibraryInitialQuery('');
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(max-width: 1023px)');
+    const sync = () => setIsMobile(mq.matches);
+    sync();
+    if (typeof mq.addEventListener === 'function') {
+      mq.addEventListener('change', sync);
+      return () => mq.removeEventListener('change', sync);
     }
-    setLibraryModalOpen(true);
+    mq.addListener(sync);
+    return () => mq.removeListener(sync);
   }, []);
+
+  const openSongSearchModal = useCallback(
+    (initialQuery?: string) => {
+      setLibraryHubTab(isMobile && !initialQuery?.trim() ? 'library' : 'search');
+      setLibraryInitialPublish(false);
+      if (initialQuery?.trim()) {
+        setLibraryInitialQuery(initialQuery.trim());
+        setLibrarySearchNonce((n) => n + 1);
+      } else {
+        setLibraryInitialQuery('');
+      }
+      setLibraryModalOpen(true);
+    },
+    [isMobile]
+  );
 
   // Load demo project on initial mount so the user sees live karaoke styling immediately
   const loadDemo = useCallback(async () => {
@@ -843,7 +869,10 @@ export default function App() {
     if (!ytControllerRef.current) {
       ytControllerRef.current = new YoutubeFallbackController({
         onStateChange: (state) => {
-          if (state === 0) {
+          if (state === 1) {
+            setYtDirectTapNeeded(false);
+            ytControllerRef.current?.setInteractiveMode(false);
+          } else if (state === 0) {
             setIsPlaying(false);
           }
         },
@@ -882,6 +911,26 @@ export default function App() {
       ytControllerRef.current.setVolume(volume);
     }
   }, [playbackRate, volume]);
+
+  // Mobile Safari/Chrome autoplay guard: expose direct YouTube tap box if playVideo() stays blocked
+  useEffect(() => {
+    if (!isPlaying || !usingYoutubeFallback || !isMobile) {
+      setYtDirectTapNeeded(false);
+      ytControllerRef.current?.setInteractiveMode(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      if (isPlayingRef.current && ytControllerRef.current?.getPlayerState() !== 1) {
+        setYtDirectTapNeeded(true);
+        ytControllerRef.current?.setInteractiveMode(true);
+      }
+    }, 2200);
+    return () => {
+      window.clearTimeout(timer);
+      setYtDirectTapNeeded(false);
+      ytControllerRef.current?.setInteractiveMode(false);
+    };
+  }, [isPlaying, usingYoutubeFallback, isMobile, activeYtTarget?.videoId]);
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -1768,7 +1817,9 @@ export default function App() {
             playbackRate
           );
         } else if (startAt >= activeYtTarget.offsetSec) {
-          yt.seekTo(ytStart);
+          if (Math.abs(yt.getCurrentTime() - ytStart) > 0.35) {
+            yt.seekTo(ytStart);
+          }
           yt.play();
         }
       }
@@ -1898,11 +1949,12 @@ export default function App() {
   );
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#070b14] text-slate-100">
+    <div className="flex h-full w-full flex-col overflow-hidden bg-[#070b14] text-slate-100">
       <audio ref={audioElRef} crossOrigin="anonymous" className="hidden" />
 
       <TopBar
         uiTheme={uiTheme}
+        isMobile={isMobile}
         songTitle={project.title}
         songArtist={project.artist}
         onToggleTheme={() => setUiTheme((t) => (t === 'light' ? 'dark' : 'light'))}
@@ -1924,13 +1976,42 @@ export default function App() {
       />
 
       <main className="flex flex-1 min-h-0 overflow-hidden">
-        <LeftSidebar
-          project={project}
-          onUpdateProject={updateProjectWithHistory}
-          onBackgroundLoaded={handleBackgroundLoaded}
-        />
+        {!isMobile && (
+          <LeftSidebar
+            project={project}
+            onUpdateProject={updateProjectWithHistory}
+            onBackgroundLoaded={handleBackgroundLoaded}
+          />
+        )}
 
-        <section className="flex flex-1 min-w-0 flex-col gap-2.5 overflow-y-auto p-3 bg-[#070b14]">
+        <section
+          className={`flex flex-1 min-w-0 flex-col overflow-y-auto bg-[#070b14] ${
+            isMobile ? 'gap-2 p-2.5' : 'gap-2.5 p-3'
+          }`}
+        >
+          {isMobile && (
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-white/[0.07] bg-[#0c111d] px-3 py-2 shrink-0">
+              <div className="min-w-0">
+                <div className="truncate text-xs font-bold text-slate-100">
+                  {project.title || '제목 없음'}
+                </div>
+                {project.artist && (
+                  <div className="truncate text-[10.5px] text-slate-400">
+                    {project.artist}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => openSongSearchModal()}
+                className="inline-flex items-center gap-1 rounded-lg border border-sky-400/35 bg-sky-500/15 px-2.5 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-500/25 transition shrink-0"
+              >
+                <Library className="h-3 w-3 shrink-0" />
+                다른 곡
+              </button>
+            </div>
+          )}
+
           <StagePreview
             project={project}
             currentTime={currentTime}
@@ -1944,6 +2025,7 @@ export default function App() {
             mrSyncStatus={mrSyncStatus}
             mrSyncMonitorOriginal={mrSyncMonitorOriginal}
             usingYoutubeFallback={usingYoutubeFallback}
+            mobileMode={isMobile}
             audioError={audioError}
             selectedLineId={selectedLineId}
             resources={resources}
@@ -1972,32 +2054,53 @@ export default function App() {
             onSelectLine={setSelectedLineId}
           />
 
-          <Timeline
-            project={project}
-            audioBuffer={audioBuffer}
-            currentTime={currentTime}
-            selectedLineId={selectedLineId}
-            uiTheme={uiTheme}
-            onSeek={handleSeek}
-            onSelectLine={setSelectedLineId}
-          />
+          {isMobile ? (
+            <MobileLyricsView
+              project={project}
+              currentTime={currentTime}
+              isPlaying={isPlaying}
+              onSeek={handleSeek}
+              onToggleStyleFlag={(key) =>
+                setProject((prev) => ({
+                  ...prev,
+                  settings: {
+                    ...prev.settings,
+                    [key]: !prev.settings[key],
+                  },
+                }))
+              }
+              onOpenLibrary={() => openSongSearchModal()}
+            />
+          ) : (
+            <Timeline
+              project={project}
+              audioBuffer={audioBuffer}
+              currentTime={currentTime}
+              selectedLineId={selectedLineId}
+              uiTheme={uiTheme}
+              onSeek={handleSeek}
+              onSelectLine={setSelectedLineId}
+            />
+          )}
         </section>
 
-        <LyricInspector
-          project={project}
-          currentTime={currentTime}
-          selectedLineId={selectedLineId}
-          aiAligning={aiAligning}
-          aiAlignStatus={aiAlignStatus}
-          onSelectLine={setSelectedLineId}
-          onSeek={handleSeek}
-          onUpdateProject={updateProjectWithHistory}
-          onRunAiLyricsAlign={() => runAiLyricsForcedAlign()}
-          onShiftAllLyrics={handleShiftAllLyrics}
-          onLineDeleted={() =>
-            showToast('소절을 삭제했습니다', { canUndoAction: true, durationMs: 4200 })
-          }
-        />
+        {!isMobile && (
+          <LyricInspector
+            project={project}
+            currentTime={currentTime}
+            selectedLineId={selectedLineId}
+            aiAligning={aiAligning}
+            aiAlignStatus={aiAlignStatus}
+            onSelectLine={setSelectedLineId}
+            onSeek={handleSeek}
+            onUpdateProject={updateProjectWithHistory}
+            onRunAiLyricsAlign={() => runAiLyricsForcedAlign()}
+            onShiftAllLyrics={handleShiftAllLyrics}
+            onLineDeleted={() =>
+              showToast('소절을 삭제했습니다', { canUndoAction: true, durationMs: 4200 })
+            }
+          />
+        )}
       </main>
 
       <ExportModal
@@ -2019,6 +2122,7 @@ export default function App() {
 
       <SongLibraryModal
         open={libraryModalOpen}
+        isMobile={isMobile}
         initialTab={libraryHubTab}
         initialPublishOpen={libraryInitialPublish}
         initialSearchQuery={libraryInitialQuery}
@@ -2061,7 +2165,7 @@ export default function App() {
       />
 
       <OnboardingTour
-        open={tourOpen}
+        open={!isMobile && tourOpen}
         onClose={() => {
           try {
             window.localStorage.setItem(TOUR_STORAGE_KEY, '1');
@@ -2071,6 +2175,25 @@ export default function App() {
           setTourOpen(false);
         }}
       />
+
+      {ytDirectTapNeeded && isMobile && (
+        <div className="fixed bottom-[160px] left-1/2 -translate-x-1/2 z-[60] w-[260px] rounded-xl border border-white/[0.16] bg-[#0d1322] px-3 py-2 text-[11px] text-slate-100 shadow-2xl backdrop-blur-md flex items-center justify-between gap-2">
+          <span className="leading-snug">
+            소리가 나오지 않으면 아래 ▶ 버튼을 한 번 눌러 시작해 주세요
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setYtDirectTapNeeded(false);
+              ytControllerRef.current?.setInteractiveMode(false);
+            }}
+            aria-label="닫기"
+            className="rounded p-1 text-slate-400 hover:bg-white/[0.08] hover:text-white shrink-0"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {toast && (
         <div

@@ -120,20 +120,39 @@ export class YoutubeFallbackController {
   private desiredAutoplay = false;
   private desiredVolume = 0.25;
   private desiredRate = 1;
+  private interactive = false;
   private initPromise: Promise<void> | null = null;
 
   constructor(callbacks: YoutubeFallbackCallbacks = {}) {
     this.callbacks = callbacks;
   }
 
+  private applyHostStyle(host: HTMLDivElement, interactive: boolean): void {
+    if (interactive) {
+      host.setAttribute('aria-hidden', 'false');
+      host.style.cssText =
+        'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);width:240px;height:135px;opacity:1;pointer-events:auto;overflow:hidden;z-index:60;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.18);background:#000;';
+    } else {
+      host.setAttribute('aria-hidden', 'true');
+      host.style.cssText =
+        'position:fixed;right:0;bottom:0;width:200px;height:112px;opacity:0.001;pointer-events:none;overflow:hidden;z-index:-1;';
+    }
+  }
+
+  setInteractiveMode(interactive: boolean): void {
+    this.interactive = interactive;
+    if (this.container) {
+      this.applyHostStyle(this.container, interactive);
+    }
+  }
+
   private ensureHostElement(): HTMLDivElement {
     if (this.container && document.body.contains(this.container)) {
+      this.applyHostStyle(this.container, this.interactive);
       return this.container;
     }
     const host = document.createElement('div');
-    host.setAttribute('aria-hidden', 'true');
-    host.style.cssText =
-      'position:fixed;left:-9999px;top:-9999px;width:220px;height:220px;opacity:0.01;pointer-events:none;overflow:hidden;';
+    this.applyHostStyle(host, this.interactive);
     const target = document.createElement('div');
     host.appendChild(target);
     document.body.appendChild(host);
@@ -204,13 +223,14 @@ export class YoutubeFallbackController {
         const mountNode = host.firstElementChild as HTMLElement;
         await new Promise<void>((resolve) => {
           this.player = new YT.Player(mountNode, {
-            width: 220,
-            height: 220,
+            width: 240,
+            height: 135,
             videoId: this.targetVideoId,
             playerVars: {
               autoplay: this.desiredAutoplay ? 1 : 0,
               controls: 0,
               disablekb: 1,
+              enablejsapi: 1,
               fs: 0,
               modestbranding: 1,
               playsinline: 1,

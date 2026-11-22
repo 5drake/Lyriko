@@ -5,6 +5,7 @@ import {
   ExternalLink,
   Library,
   Loader2,
+  Monitor,
   Music,
   Search,
   Sparkles,
@@ -96,6 +97,7 @@ export interface YoutubeSongSearchPanelProps {
   onLoadLibrarySong: (song: LibrarySongSummary) => Promise<void>;
   onSwitchToLibrary: () => void;
   workerConnected?: boolean;
+  isMobile?: boolean;
   onOpenWorkerModal?: () => void;
   onBusyChange?: (busy: boolean) => void;
   onImportComplete?: () => void;
@@ -120,6 +122,7 @@ export function YoutubeSongSearchPanel({
   onLoadLibrarySong,
   onSwitchToLibrary,
   workerConnected = true,
+  isMobile = false,
   onOpenWorkerModal,
   onBusyChange,
   onImportComplete,
@@ -170,11 +173,12 @@ export function YoutubeSongSearchPanel({
   }, [batchImporting, onBusyChange]);
 
   useEffect(() => {
+    if (isMobile) return;
     const t = window.setTimeout(() => {
       searchInputRef.current?.focus();
     }, 60);
     return () => window.clearTimeout(t);
-  }, []);
+  }, [isMobile]);
 
   useEffect(() => {
     const onMouseDown = (e: MouseEvent) => {
@@ -488,13 +492,37 @@ export function YoutubeSongSearchPanel({
 
   return (
     <div className="flex flex-1 min-h-0 flex-col">
+      {isMobile && (
+        <div className="border-b border-amber-400/25 bg-amber-500/[0.08] px-3.5 sm:px-5 py-3 shrink-0">
+          <div className="flex items-start gap-2.5">
+            <Monitor className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="text-xs font-semibold text-slate-100">
+                라이브러리에 없는 새 곡 불러오기는 PC에서만 가능합니다
+              </div>
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                모바일에서는 YouTube 후보 검색 확인만 가능하며, 실제 음원 가져오기와 AI 가사 싱크 등록은 PC 브라우저(로컬 GPU 워커)에서 진행해 주세요.
+              </p>
+              <button
+                type="button"
+                onClick={onSwitchToLibrary}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-violet-400/35 bg-violet-500/20 px-3 py-1 text-[11px] font-semibold text-violet-200 hover:bg-violet-500/30 transition"
+              >
+                <Library className="h-3 w-3" />
+                공유 라이브러리로 돌아가기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top Clean Search Header */}
-      <div className="border-b border-white/[0.07] bg-black/20 px-5 py-3.5 space-y-2.5 shrink-0">
+      <div className="border-b border-white/[0.07] bg-black/20 px-3.5 sm:px-5 py-3 sm:py-3.5 space-y-2.5 shrink-0">
         <form
           onSubmit={(e) => void handleSearchYoutube3Tracks(e)}
           className="flex flex-wrap items-center gap-2"
         >
-          <div ref={suggestContainerRef} className="relative flex-1 min-w-[260px]">
+          <div ref={suggestContainerRef} className="relative flex-1 min-w-[180px] sm:min-w-[260px]">
             <Search className="h-4 w-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
             <input
               ref={searchInputRef}
@@ -686,7 +714,7 @@ export function YoutubeSongSearchPanel({
       </div>
 
       {/* Main Content Area: Instant Library Match + 3-Column Video Picker or Empty State */}
-      <div className="flex-1 overflow-y-auto p-5 space-y-4">
+      <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 space-y-4">
         {matchedLibrarySong && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-400/35 bg-violet-500/10 px-4 py-2.5">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -1017,7 +1045,7 @@ export function YoutubeSongSearchPanel({
 
       {/* Bottom Import Action / Progress Bar */}
       {(batchImporting || ytSearchRes) && (
-        <div className="border-t border-white/[0.08] bg-[#0a0f1c] px-5 py-3 shrink-0">
+        <div className="border-t border-white/[0.08] bg-[#0a0f1c] px-3.5 sm:px-5 py-3 shrink-0">
           {batchImporting ? (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between gap-2 text-xs text-sky-200">
@@ -1058,14 +1086,31 @@ export function YoutubeSongSearchPanel({
                 <div className="text-[10.5px] text-slate-400 flex items-center gap-1.5">
                   <Cpu className="h-3 w-3 text-sky-400 shrink-0" />
                   <span>
-                    {workerConnected
+                    {isMobile
+                      ? 'PC에서 접속 시 새 곡 음원 추출 · AI 싱크 등록 가능'
+                      : workerConnected
                       ? 'AI 싱크 예상 (4분 곡): RTX 3060 약 30~45초 · RTX 5090 약 10~15초'
                       : '검색·미리보기는 웹에서 바로 가능 · 새 곡 음원 추출/AI 싱크는 로컬 워커 필요 (4분 곡 기준 RTX 3060 약 30~45초 · RTX 5090 약 10~15초)'}
                   </span>
                 </div>
               </div>
 
-              {workerConnected ? (
+              {isMobile ? (
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <span className="inline-flex items-center gap-1.5 rounded-xl border border-amber-400/35 bg-amber-500/15 px-3 py-1.5 text-[11px] font-semibold text-amber-200">
+                    <Monitor className="h-3.5 w-3.5" />
+                    PC에서 접속 시 새 곡 추가 가능
+                  </span>
+                  <button
+                    type="button"
+                    onClick={onSwitchToLibrary}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-violet-500 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-violet-400 transition"
+                  >
+                    <Library className="h-3.5 w-3.5" />
+                    공유 라이브러리 보기
+                  </button>
+                </div>
+              ) : workerConnected ? (
                 <button
                   type="button"
                   disabled={selectedSlotsList.length === 0}

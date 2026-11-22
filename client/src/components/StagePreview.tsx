@@ -41,6 +41,7 @@ interface StagePreviewProps {
   mrSyncStatus: string;
   mrSyncMonitorOriginal: boolean;
   usingYoutubeFallback?: boolean;
+  mobileMode?: boolean;
   audioError: string;
   selectedLineId?: string | null;
   resources: RenderResources;
@@ -73,6 +74,7 @@ export function StagePreview({
   mrSyncStatus,
   mrSyncMonitorOriginal,
   usingYoutubeFallback = false,
+  mobileMode = false,
   audioError,
   resources,
   onTogglePlay,
@@ -135,6 +137,81 @@ export function StagePreview({
     onChangeRate(next);
   };
 
+  const renderProgressScrubber = (className: string) => (
+    <div className={className}>
+      <div className="relative w-full h-1.5 rounded-full bg-white/[0.1] overflow-hidden">
+        {project.lines.map((ln) => {
+          const leftPct = Math.max(0, Math.min(100, (ln.startTime / duration) * 100));
+          const widthPct = Math.max(
+            0.5,
+            Math.min(100 - leftPct, ((ln.endTime - ln.startTime) / duration) * 100)
+          );
+          return (
+            <span
+              key={ln.id}
+              className="pointer-events-none absolute top-0 bottom-0 bg-white/15"
+              style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+            />
+          );
+        })}
+        <div
+          className="h-full rounded-full bg-sky-400 transition-[width] duration-75"
+          style={{ width: `${progressPct}%` }}
+        />
+      </div>
+      <span
+        className="pointer-events-none absolute h-3 w-3 -ml-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(56,189,248,0.8)] border border-sky-400/80 transition-transform group-hover:scale-125"
+        style={{ left: `${progressPct}%` }}
+      />
+      <input
+        type="range"
+        min={0}
+        max={duration}
+        step={0.05}
+        value={clampedTime}
+        onChange={(e) => onSeek(Number(e.target.value))}
+        aria-label="영상 전체 진행도"
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+      />
+    </div>
+  );
+
+  const renderTransportButtons = () => (
+    <div className="flex items-center gap-1.5 shrink-0">
+      <button
+        type="button"
+        onClick={() => onSeek(Math.max(0, currentTime - 5))}
+        className="rounded-lg p-1.5 text-slate-400 hover:bg-white/[0.06] hover:text-white transition"
+        title="5초 뒤로 (← / Shift+← 1초)"
+      >
+        <RotateCcw className="h-4 w-4" />
+      </button>
+
+      <button
+        type="button"
+        onClick={onTogglePlay}
+        className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-slate-950 hover:bg-sky-100 transition shadow-sm"
+        title="재생 / 일시정지 (Space)"
+      >
+        {isPlaying ? <Pause className="h-4 w-4 fill-current" /> : <Play className="h-4 w-4 ml-0.5 fill-current" />}
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onSeek(Math.min(duration, currentTime + 5))}
+        className="rounded-lg p-1.5 text-slate-400 hover:bg-white/[0.06] hover:text-white transition"
+        title="5초 앞으로 (→ / Shift+→ 1초)"
+      >
+        <RotateCw className="h-4 w-4" />
+      </button>
+
+      <span className="ml-1.5 font-mono tabular-nums text-xs text-slate-200">
+        <span className="font-semibold text-white">{formatTime(currentTime, true)}</span>
+        <span className="text-slate-500"> / {formatTime(duration, false)}</span>
+      </span>
+    </div>
+  );
+
   return (
     <div data-tour="stage-preview" className="flex flex-col gap-2.5">
       <div
@@ -150,118 +227,77 @@ export function StagePreview({
           height={STAGE_HEIGHT}
           className="h-full w-full object-contain"
         />
-        <div className="pointer-events-none absolute bottom-2.5 left-1/2 -translate-x-1/2 rounded-full border border-white/10 bg-black/75 px-3 py-1 text-[10.5px] text-slate-200 opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm whitespace-nowrap">
-          클릭 · Space 재생/정지 &nbsp;|&nbsp; ← / → 5초 &nbsp;|&nbsp; , / . 1프레임
-        </div>
+        {!mobileMode && (
+          <div className="pointer-events-none absolute bottom-2.5 left-1/2 -translate-x-1/2 rounded-full border border-white/10 bg-black/75 px-3 py-1 text-[10.5px] text-slate-200 opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm whitespace-nowrap">
+            클릭 · Space 재생/정지 &nbsp;|&nbsp; ← / → 5초 &nbsp;|&nbsp; , / . 1프레임
+          </div>
+        )}
       </div>
 
       {/* Unified Media Dock: Transport + Interactive Progress + Mode / Key / Speed */}
       <div className="rounded-xl border border-white/[0.07] bg-[#0c111d] overflow-hidden divide-y divide-white/[0.06]">
         {/* Row 1: Transport & Full-Length Scrubber */}
-        <div className="flex items-center justify-between gap-3 px-3 py-2">
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => onSeek(Math.max(0, currentTime - 5))}
-              className="rounded-lg p-1.5 text-slate-400 hover:bg-white/[0.06] hover:text-white transition"
-              title="5초 뒤로 (← / Shift+← 1초)"
-            >
-              <RotateCcw className="h-4 w-4" />
-            </button>
-
-            <button
-              type="button"
-              onClick={onTogglePlay}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-slate-950 hover:bg-sky-100 transition shadow-sm"
-              title="재생 / 일시정지 (Space)"
-            >
-              {isPlaying ? <Pause className="h-4 w-4 fill-current" /> : <Play className="h-4 w-4 ml-0.5 fill-current" />}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onSeek(Math.min(duration, currentTime + 5))}
-              className="rounded-lg p-1.5 text-slate-400 hover:bg-white/[0.06] hover:text-white transition"
-              title="5초 앞으로 (→ / Shift+→ 1초)"
-            >
-              <RotateCw className="h-4 w-4" />
-            </button>
-
-            <span className="ml-1.5 font-mono tabular-nums text-xs text-slate-200">
-              <span className="font-semibold text-white">{formatTime(currentTime, true)}</span>
-              <span className="text-slate-500"> / {formatTime(duration, false)}</span>
-            </span>
-          </div>
-
-          {/* Center Interactive Video Progress Bar */}
-          <div className="relative flex-1 min-w-[110px] h-5 flex items-center group">
-            <div className="relative w-full h-1.5 rounded-full bg-white/[0.1] overflow-hidden">
-              {project.lines.map((ln) => {
-                const leftPct = Math.max(0, Math.min(100, (ln.startTime / duration) * 100));
-                const widthPct = Math.max(
-                  0.5,
-                  Math.min(100 - leftPct, ((ln.endTime - ln.startTime) / duration) * 100)
-                );
-                return (
-                  <span
-                    key={ln.id}
-                    className="pointer-events-none absolute top-0 bottom-0 bg-white/15"
-                    style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
-                  />
-                );
-              })}
-              <div
-                className="h-full rounded-full bg-sky-400 transition-[width] duration-75"
-                style={{ width: `${progressPct}%` }}
-              />
+        {mobileMode ? (
+          <div className="flex flex-col gap-1.5 px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              {renderTransportButtons()}
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => onChangeVolume(volume > 0 ? 0 : 0.25)}
+                  className="rounded-lg p-1.5 text-slate-400 hover:bg-white/[0.06] hover:text-white transition"
+                  title={volume === 0 ? '음소거 해제' : '음소거'}
+                >
+                  {volume === 0 ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleFullscreen}
+                  className="rounded-lg p-1.5 text-slate-400 hover:bg-white/[0.06] hover:text-white transition"
+                  title="전체 화면 미리보기"
+                >
+                  <Maximize2 className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-            <span
-              className="pointer-events-none absolute h-3 w-3 -ml-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(56,189,248,0.8)] border border-sky-400/80 transition-transform group-hover:scale-125"
-              style={{ left: `${progressPct}%` }}
-            />
-            <input
-              type="range"
-              min={0}
-              max={duration}
-              step={0.05}
-              value={clampedTime}
-              onChange={(e) => onSeek(Number(e.target.value))}
-              aria-label="영상 전체 진행도"
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-            />
+            {renderProgressScrubber('relative w-full h-6 flex items-center group')}
           </div>
+        ) : (
+          <div className="flex items-center justify-between gap-3 px-3 py-2">
+            {renderTransportButtons()}
+            {renderProgressScrubber('relative flex-1 min-w-[110px] h-5 flex items-center group')}
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => onChangeVolume(volume > 0 ? 0 : 0.25)}
+                  className="text-slate-400 hover:text-white transition"
+                  title={volume === 0 ? '음소거 해제' : '음소거'}
+                >
+                  {volume === 0 ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                </button>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={volume}
+                  onChange={(e) => onChangeVolume(Number(e.target.value))}
+                  className="w-16"
+                />
+              </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="flex items-center gap-1.5">
               <button
                 type="button"
-                onClick={() => onChangeVolume(volume > 0 ? 0 : 0.25)}
-                className="text-slate-400 hover:text-white transition"
-                title={volume === 0 ? '음소거 해제' : '음소거'}
+                onClick={toggleFullscreen}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-white/[0.06] hover:text-white transition"
+                title="전체 화면 미리보기"
               >
-                {volume === 0 ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                <Maximize2 className="h-4 w-4" />
               </button>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={volume}
-                onChange={(e) => onChangeVolume(Number(e.target.value))}
-                className="w-16"
-              />
             </div>
-
-            <button
-              type="button"
-              onClick={toggleFullscreen}
-              className="rounded-lg p-1.5 text-slate-400 hover:bg-white/[0.06] hover:text-white transition"
-              title="전체 화면 미리보기"
-            >
-              <Maximize2 className="h-4 w-4" />
-            </button>
           </div>
-        </div>
+        )}
 
         {/* Row 2: Audio Mode · Key Transpose · Playback Speed */}
         <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs">
@@ -302,7 +338,7 @@ export function StagePreview({
               })}
             </div>
 
-            {usingYoutubeFallback && (
+            {!mobileMode && usingYoutubeFallback && (
               <span
                 className="text-[10px] px-1.5 py-0.5 rounded-md bg-rose-500/10 text-rose-300 border border-rose-400/25 whitespace-nowrap"
                 title="로컬 워커 없이 YouTube 스트리밍으로 재생 중 (키 ±6 · 파형 · MP4 저장은 로컬 워커 연결 시 지원)"
@@ -311,7 +347,8 @@ export function StagePreview({
               </span>
             )}
 
-            {normalizeAudioPlayMode(project.audioMode) === 'mr' &&
+            {!mobileMode &&
+              normalizeAudioPlayMode(project.audioMode) === 'mr' &&
               !project.mrAudioFileId &&
               !project.mrYoutubeId && (
                 <button
@@ -324,7 +361,8 @@ export function StagePreview({
                 </button>
               )}
 
-            {normalizeAudioPlayMode(project.audioMode) === 'karaoke' &&
+            {!mobileMode &&
+              normalizeAudioPlayMode(project.audioMode) === 'karaoke' &&
               !project.karaokeAudioFileId &&
               !project.karaokeYoutubeId && (
                 <button
@@ -349,7 +387,7 @@ export function StagePreview({
 
           {/* Connected Key Transpose & Playback Speed Steppers */}
           <div className="flex items-center gap-2 shrink-0">
-            {(() => {
+            {!mobileMode && (() => {
               const isOriginalMode =
                 normalizeAudioPlayMode(project.audioMode) === 'original';
               const isKeyDisabled = isOriginalMode || Boolean(usingYoutubeFallback);
@@ -421,7 +459,7 @@ export function StagePreview({
               );
             })()}
 
-            <span className="h-4 w-px bg-white/[0.08]" />
+            {!mobileMode && <span className="h-4 w-px bg-white/[0.08]" />}
 
             <div className="flex items-center gap-1">
               <span className="text-[11px] font-medium text-slate-400">배속</span>
@@ -465,6 +503,7 @@ export function StagePreview({
 
         {/* Row 3: Active Track Sync Adjustment Strip */}
         {(() => {
+          if (mobileMode) return null;
           const normMode = normalizeAudioPlayMode(project.audioMode);
           const usingKaraokeSlot =
             normMode === 'karaoke' && Boolean(project.karaokeAudioFileId);
