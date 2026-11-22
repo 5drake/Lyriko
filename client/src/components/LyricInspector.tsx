@@ -22,6 +22,7 @@ interface LyricInspectorProps {
   project: KaraokeProject;
   currentTime: number;
   selectedLineId: string | null;
+  isPlaying?: boolean;
   aiAligning?: boolean;
   aiAlignStatus?: string;
   onSelectLine: (id: string) => void;
@@ -100,6 +101,7 @@ export function LyricInspector({
   project,
   currentTime,
   selectedLineId,
+  isPlaying = false,
   aiAligning = false,
   aiAlignStatus = '',
   onSelectLine,
@@ -113,6 +115,11 @@ export function LyricInspector({
   const [syncToolsOpen, setSyncToolsOpen] = useState(false);
   const [reconverting, setReconverting] = useState(false);
   const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const detailEditorRef = useRef<HTMLDivElement | null>(null);
+  const selectedLineIdRef = useRef<string | null>(selectedLineId);
+  selectedLineIdRef.current = selectedLineId;
+  const onSelectLineRef = useRef(onSelectLine);
+  onSelectLineRef.current = onSelectLine;
 
   const activeLine = project.lines.find(
     (l) => currentTime >= l.startTime && currentTime <= l.endTime
@@ -124,7 +131,22 @@ export function LyricInspector({
     if (el) {
       el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
-  }, [activeLine?.id, autoFollow]);
+    if (isPlaying && activeLine.id !== selectedLineIdRef.current) {
+      const activeEl = document.activeElement;
+      const isEditingDetail =
+        Boolean(activeEl) &&
+        Boolean(detailEditorRef.current?.contains(activeEl)) &&
+        (activeEl instanceof HTMLInputElement ||
+          activeEl instanceof HTMLTextAreaElement ||
+          activeEl instanceof HTMLSelectElement);
+      if (!isEditingDetail) {
+        onSelectLineRef.current(activeLine.id);
+        if (detailEditorRef.current) {
+          detailEditorRef.current.scrollTop = 0;
+        }
+      }
+    }
+  }, [activeLine?.id, autoFollow, isPlaying]);
 
   const selectedLine =
     project.lines.find((l) => l.id === selectedLineId) ?? project.lines[0] ?? null;
@@ -376,7 +398,7 @@ export function LyricInspector({
                 ? 'border-sky-400/35 bg-sky-500/15 text-sky-200'
                 : 'border-white/[0.08] bg-white/[0.03] text-slate-400 hover:text-slate-200'
             }`}
-            title="재생 중인 소절로 자동 스크롤"
+            title="재생 중인 소절로 자동 스크롤 및 소절 상세 자동 전환"
           >
             자동 스크롤
           </button>
@@ -500,6 +522,7 @@ export function LyricInspector({
       {/* Selected Line Detailed Editor */}
       {selectedLine && (
         <div
+          ref={detailEditorRef}
           data-tour="lyric-inspector"
           className="border-t border-white/[0.08] bg-[#0d1322] p-3 space-y-2.5 max-h-[52%] overflow-y-auto text-xs"
         >

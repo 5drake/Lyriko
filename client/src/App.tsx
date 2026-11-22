@@ -2089,6 +2089,7 @@ export default function App() {
             project={project}
             currentTime={currentTime}
             selectedLineId={selectedLineId}
+            isPlaying={isPlaying}
             aiAligning={aiAligning}
             aiAlignStatus={aiAlignStatus}
             onSelectLine={setSelectedLineId}
