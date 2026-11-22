@@ -113,6 +113,11 @@ const TOUR_STEPS: TourStep[] = [
         text: '다른 사용자가 맞춘 곡을 불러오면 가사·발음·싱크와 함께 YouTube 음원이 연결되어 바로 재생할 수 있습니다.',
         worker: 'none',
       },
+      {
+        label: '수정본 올리기 · 커뮤니티 기여',
+        text: '불러온 곡의 발음·해석·싱크를 다듬은 뒤 상단 [수정본 올리기]로 등록하면 새 버전(v2…)으로 모두와 공유되며 이전 버전은 기록에 안전하게 보존됩니다.',
+        worker: 'none',
+      },
     ],
     shortcuts: [{ keyLabel: 'Ctrl + K', action: '검색 · 라이브러리 열기' }],
   },

@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  BookOpen,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Database,
   Download,
   Flag,
@@ -100,6 +103,8 @@ interface SongLibraryModalProps {
   onOpenWorkerModal?: () => void;
   onClose: () => void;
 }
+
+const LIB_GUIDE_COLLAPSED_KEY = 'lyriko_lib_guide_collapsed_v1';
 
 const EDIT_NOTE_CHIPS = [
   '싱크 보정',
@@ -216,6 +221,24 @@ export function SongLibraryModal({
   const [authorInput, setAuthorInput] = useState(() => getSavedContributorName());
   const [editNoteInput, setEditNoteInput] = useState('');
   const [publishing, setPublishing] = useState(false);
+  const [guideCollapsed, setGuideCollapsed] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(LIB_GUIDE_COLLAPSED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleGuideCollapsed = () => {
+    setGuideCollapsed((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(LIB_GUIDE_COLLAPSED_KEY, next ? '1' : '0');
+      } catch {
+        // ignore storage failure
+      }
+      return next;
+    });
+  };
 
   // Revision history drawer per song
   const [expandedRevVid, setExpandedRevVid] = useState<string | null>(null);
@@ -654,8 +677,8 @@ export function SongLibraryModal({
                 className="inline-flex items-center gap-1.5 rounded-lg bg-violet-500/90 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-violet-400 disabled:opacity-40 disabled:cursor-not-allowed transition"
                 title={
                   canPublish
-                    ? '현재 편집 중인 곡의 가사·싱크·독음·번역을 라이브러리에 공유합니다'
-                    : 'YouTube에서 곡을 가져온 뒤 공유할 수 있습니다'
+                    ? '현재 다듬은 가사·싱크·독음·번역을 라이브러리에 새 버전으로 올려 커뮤니티에 기여합니다'
+                    : '공유 라이브러리 또는 YouTube에서 곡을 불러온 뒤 공유할 수 있습니다'
                 }
               >
                 <Share2 className="h-3.5 w-3.5" />
@@ -735,6 +758,12 @@ export function SongLibraryModal({
                   )}
                 </div>
 
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  {existingForProject
+                    ? '다듬어 주신 싱크·발음·번역은 새 버전으로 기록되어 모든 사용자가 더 정확한 가사로 함께 즐길 수 있습니다.'
+                    : '이 곡을 공유 라이브러리에 등록하면 다른 사용자도 AI 분석 대기 없이 바로 감상하고 함께 다듬을 수 있습니다.'}
+                </p>
+
                 <div className="grid grid-cols-1 sm:grid-cols-[170px_1fr] gap-2">
                   <input
                     type="text"
@@ -800,6 +829,86 @@ export function SongLibraryModal({
                     </button>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Collapsible Shared Library & Contribution Guide (Desktop) */}
+            {!isMobile && (
+              <div className="border-b border-violet-400/20 bg-violet-950/25 shrink-0">
+                {guideCollapsed ? (
+                  <div className="px-5 py-2 flex items-center justify-between gap-2 text-[11px]">
+                    <div className="flex items-center gap-2 min-w-0 text-slate-200">
+                      <BookOpen className="h-3.5 w-3.5 text-violet-300 shrink-0" />
+                      <span className="truncate">
+                        공유 라이브러리: 모두가 함께 가사·발음·싱크를 다듬어 가는 공동 저장소 (수정본을 올려 기여할 수 있습니다)
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={toggleGuideCollapsed}
+                      className="inline-flex items-center gap-1 rounded-md border border-violet-400/30 bg-white/[0.04] px-2.5 py-0.5 text-[10.5px] font-semibold text-violet-200 hover:bg-violet-500/20 transition shrink-0"
+                    >
+                      <span>기여 방법 보기</span>
+                      <ChevronDown className="h-3 w-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="px-5 py-3 space-y-2 text-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <BookOpen className="h-3.5 w-3.5 text-violet-300 shrink-0" />
+                        <span className="font-semibold text-slate-100">
+                          함께 만드는 공유 라이브러리 · 수정본 기여 안내
+                        </span>
+                        <span className="inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-300 shrink-0">
+                          로컬 워커 없이도 기여 가능
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {canPublish && !publishOpen && (
+                          <button
+                            type="button"
+                            onClick={() => setPublishOpen(true)}
+                            className="inline-flex items-center gap-1 rounded-md border border-violet-400/35 bg-violet-500/20 px-2.5 py-0.5 text-[10.5px] font-semibold text-violet-200 hover:bg-violet-500/30 transition"
+                          >
+                            <Share2 className="h-3 w-3" />
+                            <span>{existingForProject ? '수정본 올리기 열기' : '현재 곡 공유 열기'}</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={toggleGuideCollapsed}
+                          className="inline-flex items-center gap-1 rounded-md border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-[10.5px] font-medium text-slate-300 hover:bg-white/[0.09] transition"
+                        >
+                          <span>접기</span>
+                          <ChevronUp className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
+                      <div className="rounded-lg border border-white/[0.08] bg-black/30 px-3 py-2 space-y-1">
+                        <div className="font-semibold text-violet-200">공유 라이브러리란?</div>
+                        <p className="text-slate-300 leading-relaxed">
+                          음원 파일 없이 가사·후리가나·한국어 발음·해석·싱크 데이터만 저장되는 공동 저장소입니다. 한 번 등록된 곡은 누구나 AI 재계산 없이 바로 감상하고 노래할 수 있습니다.
+                        </p>
+                      </div>
+
+                      <div className="rounded-lg border border-white/[0.08] bg-black/30 px-3 py-2 space-y-1">
+                        <div className="font-semibold text-sky-300">수정본 올려서 기여하는 방법</div>
+                        <p className="text-slate-300 leading-relaxed">
+                          <span className="block">
+                            ① 곡을 불러온 뒤 우측 <strong className="text-slate-100">[가사 편집]</strong>에서 어색한 독음·번역·싱크를 다듬어 주세요.
+                          </span>
+                          <span className="block">
+                            ② 다시 이 창을 열어 우측 상단 <strong className="text-slate-100">[수정본 올리기]</strong>를 눌러 닉네임·수정 메모와 함께 등록하면 새 버전(v2, v3…)으로 모두와 공유됩니다. (이전 버전은 안전하게 보존)
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -898,7 +1007,7 @@ export function SongLibraryModal({
                   <div className="w-full flex items-start gap-2 rounded-lg border border-sky-400/25 bg-sky-500/[0.08] px-3 py-2 text-[11px] text-sky-200 leading-relaxed">
                     <Monitor className="h-3.5 w-3.5 text-sky-400 shrink-0 mt-0.5" />
                     <span>
-                      라이브러리에 없는 곡을 새로 불러오려면 <strong className="font-semibold">PC</strong>에서 접속해 주세요. (모바일은 공유 곡 노래방 감상 전용)
+                      모바일은 공유 곡 노래방 감상 전용입니다. 새 곡 추가나 수정본 기여는 <strong className="font-semibold">PC</strong>에서 접속해 주세요.
                     </span>
                   </div>
                 ) : (
