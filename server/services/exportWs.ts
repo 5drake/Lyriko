@@ -14,6 +14,7 @@ import {
   prepareVocalTrack,
   synthesizeGuideMelodyWav,
 } from './audioProcessor.js';
+import { isAllowedWorkerOrigin } from './originGuard.js';
 import { ensureDataDirs, EXPORTS_DIR } from './storage.js';
 
 interface StartMessage {
@@ -93,6 +94,12 @@ export function attachExportWebSocket(server: Server): void {
   const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (request: IncomingMessage, socket, head) => {
+    const origin = request.headers.origin;
+    if (origin && !isAllowedWorkerOrigin(origin)) {
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     const reqUrl = new URL(request.url || '/', 'http://localhost');
     if (reqUrl.pathname === '/ws/export') {
       wss.handleUpgrade(request, socket, head, (ws) => {

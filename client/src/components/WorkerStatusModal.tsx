@@ -226,9 +226,12 @@ export function WorkerStatusModal({
           {/* Portable ZIP Quick Guide */}
           <div className="rounded-xl border border-white/[0.08] bg-black/25 p-3.5 space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 font-semibold text-slate-200">
-                <HardDrive className="h-3.5 w-3.5 text-emerald-400" />
-                무설치 포터블 워커 사용 및 완전 삭제 안내
+              <div className="flex flex-wrap items-center gap-1.5 font-semibold text-slate-200">
+                <HardDrive className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                <span>무설치 포터블 워커 사용 및 완전 삭제 안내</span>
+                <span className="rounded border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium text-slate-400">
+                  Windows 10/11 전용 · macOS/Linux는 웹 감상·편집 이용
+                </span>
               </div>
               <a
                 href="https://github.com/5drake/Lyriko/releases"
@@ -253,6 +256,16 @@ export function WorkerStatusModal({
                 더블클릭 (최초 1회 PC에 Node.js가 없으면{' '}
                 <code className="text-[10.5px] text-slate-300">.\node</code>에 포터블 Node.js 22 LTS를,{' '}
                 <code className="text-[10.5px] text-slate-300">.\python</code>에 AI 환경을 폴더 내부로 자동 구성)
+                <div className="mt-1.5 rounded-lg border border-amber-400/25 bg-amber-500/10 px-2.5 py-2 text-[10.5px] text-amber-200 space-y-1">
+                  <div>
+                    <strong className="font-semibold">Windows 보안 경고(SmartScreen):</strong> 서명되지 않은 개인 배포 파일이므로 &quot;Windows의 PC 보호&quot; 파란 창이 뜨면{' '}
+                    <strong className="font-semibold">[추가 정보] → [실행]</strong> 을 눌러 진행하세요.
+                  </div>
+                  <div>
+                    <strong className="font-semibold">최초 1회 대기 시간:</strong> Node.js·Python·PyTorch CUDA 자동 설치에{' '}
+                    <strong className="font-semibold">약 3~5분</strong> 소요됩니다. 완료될 때까지 검은 창을 닫지 말고 기다려 주세요. (2회차부터는 즉시 실행)
+                  </div>
+                </div>
                 <div className="mt-1 pl-3 text-[10.5px] text-slate-500">
                   방화벽·오프라인 환경에서 자동 다운로드 실패 시{' '}
                   <a

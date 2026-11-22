@@ -53,7 +53,9 @@ Lyriko는 저작권·컴퓨팅 비용 보호를 위해 **음원 다운로드·AI
 | **사전 설치** | 없음 | 없음 *(첫 실행 시 Node.js·Python 폴더 내부 자동 구성)* | 없음 *(첫 실행 시 자동 구성)* |
 | **AI 싱크 (4분 곡)** | 해당 없음 (공유 곡 즉시 감상) | GTX 1660·RTX 2060 약 60\~120초 / CPU 모드 수 분 | **RTX 3060 약 30\~45초 · RTX 5090 약 10\~15초** |
 
-> 방화벽·사내망 등으로 포터블 Node.js 자동 다운로드가 실패하면 [nodejs.org](https://nodejs.org)에서 LTS 버전을 수동 설치하거나 터미널에서 `winget install OpenJS.NodeJS.LTS`를 실행한 뒤 `Lyriko-Worker.bat`를 다시 실행해 주세요.
+> - 포터블 워커는 **Windows 10/11 (64-bit) 전용**입니다. *(macOS · Linux 및 모바일에서는 웹 브라우저로 공용 라이브러리 감상·가사/스타일 편집·수정본 기여를 이용할 수 있습니다.)*
+> - 최초 실행 시 Windows Defender SmartScreen("Windows의 PC 보호") 파란 창이 뜨면 **`[추가 정보]` → `[실행]`** 을 눌러 진행하며, Node.js · Python · PyTorch CUDA 자동 설치에 **약 3\~5분**이 소요되므로 완료될 때까지 검은 창을 닫지 마세요. *(2회차부터는 즉시 실행)*
+> - 방화벽·사내망 등으로 포터블 Node.js 자동 다운로드가 실패하면 [nodejs.org](https://nodejs.org)에서 LTS 버전을 수동 설치하거나 터미널에서 `winget install OpenJS.NodeJS.LTS`를 실행한 뒤 `Lyriko-Worker.bat`를 다시 실행해 주세요.
 
 ---
 

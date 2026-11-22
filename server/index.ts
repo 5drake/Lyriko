@@ -1,4 +1,3 @@
-import cors from 'cors';
 import express from 'express';
 import ffmpegPath from 'ffmpeg-static';
 import fs from 'node:fs';
@@ -15,6 +14,7 @@ import { youtubeRouter } from './routes/youtube.js';
 import { getWorkerGpuInfo, isAiAudioAvailable } from './services/aiAudio.js';
 import { attachExportWebSocket } from './services/exportWs.js';
 import { getTokenizer, isKuromojiReady } from './services/jpKorean.js';
+import { isAllowedWorkerOrigin } from './services/originGuard.js';
 import { DATA_DIR, ensureDataDirs, EXPORTS_DIR } from './services/storage.js';
 import { isYtDlpAvailable } from './services/ytdlp.js';
 
@@ -31,11 +31,23 @@ getTokenizer().catch((err) => {
 const app = express();
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  res.setHeader('Access-Control-Allow-Origin', origin || '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Key');
-  if (req.headers['access-control-request-private-network']) {
-    res.setHeader('Access-Control-Allow-Private-Network', 'true');
+  if (origin) {
+    if (!isAllowedWorkerOrigin(origin)) {
+      res.status(403).json({
+        error: '허용되지 않은 출처(Origin)의 로컬 워커 요청입니다.',
+      });
+      return;
+    }
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Content-Type, Authorization, X-Admin-Key'
+    );
+    if (req.headers['access-control-request-private-network']) {
+      res.setHeader('Access-Control-Allow-Private-Network', 'true');
+    }
   }
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   if (req.method === 'OPTIONS') {
@@ -44,7 +56,6 @@ app.use((req, res, next) => {
   }
   next();
 });
-app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 
 app.get('/api/health', async (_req, res) => {
@@ -120,6 +131,7 @@ if (fs.existsSync(distClientDir)) {
 const server = http.createServer(app);
 attachExportWebSocket(server);
 
-server.listen(PORT, () => {
-  console.log(`[Lyriko Server] listening on http://localhost:${PORT}`);
+const HOST = (process.env.LYRIKO_HOST || process.env.HOST || '127.0.0.1').trim();
+server.listen(PORT, HOST, () => {
+  console.log(`[Lyriko Server] listening on http://${HOST}:${PORT}`);
 });
