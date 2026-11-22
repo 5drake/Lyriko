@@ -30,20 +30,45 @@ echo ============================================================
 echo.
 
 set "NODE_BIN="
-if exist "%BASE_DIR%\node\node.exe" set "NODE_BIN=%BASE_DIR%\node\node.exe"
-if defined NODE_BIN goto :node_ready
-for /f "delims=" %%I in ('where node 2^>nul') do (
-  if not defined NODE_BIN set "NODE_BIN=%%I"
-)
-:node_ready
+if not exist "%BASE_DIR%\node\node.exe" goto :check_system_node
+"%BASE_DIR%\node\node.exe" -e "process.exit(Number(process.versions.node.split('.')[0])>=20?0:1)" >nul 2>&1
+if errorlevel 1 goto :check_system_node
+set "NODE_BIN=%BASE_DIR%\node\node.exe"
+goto :node_ready
 
-if not defined NODE_BIN (
-  echo [ERROR] Node.js 20+ was not found in PATH or .\node\node.exe
-  echo Please install Node.js LTS ^(https://nodejs.org^) and try again.
-  popd
-  pause
-  exit /b 1
-)
+:check_system_node
+set "SYS_NODE="
+for /f "delims=" %%I in ('where node 2^>nul') do if not defined SYS_NODE set "SYS_NODE=%%I"
+if not defined SYS_NODE goto :setup_portable_node
+"%SYS_NODE%" -e "process.exit(Number(process.versions.node.split('.')[0])>=20?0:1)" >nul 2>&1
+if errorlevel 1 goto :warn_old_node
+set "NODE_BIN=%SYS_NODE%"
+goto :node_ready
+
+:warn_old_node
+echo [WARN] System Node.js is older than v20. Setting up portable Node.js 22 LTS...
+
+:setup_portable_node
+echo [INFO] Node.js 20+ was not found. Downloading portable Node.js 22 LTS into .\node ...
+echo [INFO] Nothing will be written outside this folder ^(zero registry/AppData^).
+powershell -NoProfile -ExecutionPolicy Bypass -File "%BASE_DIR%\setup-node-env.ps1"
+if errorlevel 1 goto :node_failed
+if not exist "%BASE_DIR%\node\node.exe" goto :node_failed
+set "NODE_BIN=%BASE_DIR%\node\node.exe"
+goto :node_ready
+
+:node_failed
+echo.
+echo [ERROR] Automatic portable Node.js setup failed.
+echo Please install Node.js 20+ LTS manually and run Lyriko-Worker.bat again:
+echo   1^) Download LTS : https://nodejs.org
+echo   2^) Or via Winget: winget install OpenJS.NodeJS.LTS
+echo   3^) Or portable  : Copy node.exe to .\node\node.exe
+popd
+pause
+exit /b 1
+
+:node_ready
 
 if exist "%BASE_DIR%\python\python.exe" goto :check_python_health
 if defined LYRIKO_PYTHON goto :after_ai_setup

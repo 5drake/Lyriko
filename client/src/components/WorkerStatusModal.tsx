@@ -7,6 +7,7 @@ import {
   FolderX,
   HardDrive,
   Loader2,
+  Monitor,
   RefreshCw,
   Share2,
   Terminal,
@@ -239,9 +240,9 @@ export function WorkerStatusModal({
                 <ExternalLink className="h-2.5 w-2.5" />
               </a>
             </div>
-            <ul className="space-y-1 text-[11px] text-slate-400 leading-relaxed">
+            <ul className="space-y-1.5 text-[11px] text-slate-400 leading-relaxed">
               <li>
-                <span className="text-slate-200 font-medium">1. 간편 실행:</span>{' '}
+                <span className="text-slate-200 font-medium">1. 사전 설치 없이 간편 실행:</span>{' '}
                 <code className="rounded bg-white/[0.06] px-1 py-0.5 text-[10.5px] text-sky-300">
                   Lyriko-Worker-Portable.zip
                 </code>{' '}
@@ -249,17 +250,94 @@ export function WorkerStatusModal({
                 <code className="rounded bg-white/[0.06] px-1 py-0.5 text-[10.5px] text-sky-300">
                   Lyriko-Worker.bat
                 </code>{' '}
-                더블클릭 (최초 1회 폴더 내부에 AI 환경 자동 구성)
+                더블클릭 (최초 1회 PC에 Node.js가 없으면{' '}
+                <code className="text-[10.5px] text-slate-300">.\node</code>에 포터블 Node.js 22 LTS를,{' '}
+                <code className="text-[10.5px] text-slate-300">.\python</code>에 AI 환경을 폴더 내부로 자동 구성)
+                <div className="mt-1 pl-3 text-[10.5px] text-slate-500">
+                  방화벽·오프라인 환경에서 자동 다운로드 실패 시{' '}
+                  <a
+                    href="https://nodejs.org"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sky-300 underline decoration-sky-400/40 underline-offset-2 hover:text-sky-200"
+                  >
+                    nodejs.org (LTS)
+                  </a>{' '}
+                  수동 설치 또는{' '}
+                  <code className="rounded bg-white/[0.06] px-1 py-0.5 text-[10px] text-slate-300">
+                    winget install OpenJS.NodeJS.LTS
+                  </code>{' '}
+                  후 재실행해 주세요.
+                </div>
               </li>
               <li className="flex items-start gap-1">
                 <FolderX className="h-3.5 w-3.5 text-rose-400 shrink-0 mt-0.5" />
                 <span>
                   <span className="text-slate-200 font-medium">2. 100% 완전 삭제:</span> 레지스트리나{' '}
                   <code className="text-[10.5px]">AppData</code>에 흔적을 남기지 않으므로, 워커 창을 닫고{' '}
-                  <strong className="text-slate-200">압축 푼 폴더 통째로 삭제</strong>하면 모델·캐시까지 깔끔하게 지워집니다.
+                  <strong className="text-slate-200">압축 푼 폴더 통째로 삭제</strong>하면 Node.js·Python·모델·캐시까지 깔끔하게 지워집니다.
                 </span>
               </li>
             </ul>
+          </div>
+
+          {/* PC Minimum / Recommended Specs */}
+          <div className="rounded-xl border border-white/[0.08] bg-black/25 p-3.5 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 font-semibold text-slate-200">
+                <Monitor className="h-3.5 w-3.5 text-sky-400" />
+                PC 최소 / 권장 사양 (로컬 GPU 워커)
+              </div>
+              <span className="text-[10.5px] text-slate-500 shrink-0">웹 감상·편집은 사양 무관</span>
+            </div>
+
+            <div className="overflow-hidden rounded-lg border border-white/[0.08]">
+              <table className="w-full text-left border-collapse text-[10.5px]">
+                <thead>
+                  <tr className="border-b border-white/[0.08] bg-white/[0.03] text-slate-300">
+                    <th className="px-2.5 py-1.5 font-semibold w-[74px]">항목</th>
+                    <th className="px-2.5 py-1.5 font-semibold">최소 사양</th>
+                    <th className="px-2.5 py-1.5 font-semibold">권장 사양</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.06] text-slate-400">
+                  <tr>
+                    <td className="px-2.5 py-1.5 font-medium text-slate-200">OS</td>
+                    <td className="px-2.5 py-1.5">Windows 10/11 (64-bit)</td>
+                    <td className="px-2.5 py-1.5 text-slate-300">Windows 10/11 (64-bit)</td>
+                  </tr>
+                  <tr>
+                    <td className="px-2.5 py-1.5 font-medium text-slate-200">GPU</td>
+                    <td className="px-2.5 py-1.5">
+                      NVIDIA GTX 16 / RTX 20+ (VRAM 6 GB+)
+                      <span className="block text-[10px] text-slate-500">(CPU 폴백 가능)</span>
+                    </td>
+                    <td className="px-2.5 py-1.5 text-slate-200 font-medium">
+                      RTX 3060 (8~12 GB) 이상
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="px-2.5 py-1.5 font-medium text-slate-200">RAM</td>
+                    <td className="px-2.5 py-1.5">8 GB</td>
+                    <td className="px-2.5 py-1.5 text-slate-300">16 GB 이상</td>
+                  </tr>
+                  <tr>
+                    <td className="px-2.5 py-1.5 font-medium text-slate-200">저장공간</td>
+                    <td className="px-2.5 py-1.5">여유 10 GB (AI 환경·모델 포함)</td>
+                    <td className="px-2.5 py-1.5 text-slate-300">여유 15 GB 이상</td>
+                  </tr>
+                  <tr>
+                    <td className="px-2.5 py-1.5 font-medium text-slate-200">사전 설치</td>
+                    <td className="px-2.5 py-1.5">없음 (Node.js·Python 자동 구성)</td>
+                    <td className="px-2.5 py-1.5 text-slate-300">없음 (최신 NVIDIA 드라이버 권장)</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <p className="text-[10.5px] text-slate-400 tabular-nums">
+              4분 곡 AI 보컬 분리 + 음소 싱크 기준: RTX 3060 약 30~45초 · RTX 5090 약 10~15초 (최초 모델 다운로드 제외)
+            </p>
           </div>
 
           {/* Public DB Cache Section */}

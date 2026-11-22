@@ -1,5 +1,9 @@
 ﻿[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+try {
+  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+} catch {}
 
 $BaseDir = $PSScriptRoot
 $PyDir = Join-Path $BaseDir 'python'
