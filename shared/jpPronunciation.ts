@@ -329,6 +329,7 @@ const AMBIGUOUS_KANJI_READINGS: AmbiguousKanjiEntry[] = [
   { kanji: '理由', readings: ['りゆう', 'わけ'] },
   { kanji: '言葉', readings: ['ことば', 'ことのは'] },
   { kanji: '今夜', readings: ['こんや', 'こよい'] },
+  { kanji: '今', readings: ['いま', 'こん'] },
   { kanji: '何', readings: ['なに', 'なん'] },
   { kanji: '何時', readings: ['いつ', 'なんじ'] },
   { kanji: '何処', readings: ['どこ', 'いずこ'] },

@@ -573,11 +573,13 @@ function resolveUnknownKanjiReading(
   return '';
 }
 
+const KON_PREFIX_FOLLOW_RE = /^(シーズン|シリーズ|大会|学期|場所|国会|選挙|作|戦|節|ツアー|ライブ|イベント|フェス)$/;
+
 function enrichUnknownKanjiTokens(
   tokenizer: Tokenizer<IpadicFeatures>,
   tokens: IpadicFeatures[]
 ): IpadicFeatures[] {
-  return tokens.map((tok) => {
+  return tokens.map((tok, idx) => {
     // Kuromoji IPADIC defaults standalone 傍 to archaic ハタ instead of common J-POP ソバ
     if (
       tok.surface_form === '傍' &&
@@ -589,6 +591,21 @@ function enrichUnknownKanjiTokens(
         reading: 'ソバ',
         pronunciation: 'ソバ',
       };
+    }
+    // Kuromoji mislabels standalone 今 before general nouns/adverbs in lyrics as prefix コン
+    if (
+      tok.surface_form === '今' &&
+      tok.pos === '接頭詞' &&
+      tok.reading === 'コン'
+    ) {
+      const nextSurface = tokens[idx + 1]?.surface_form || '';
+      if (!KON_PREFIX_FOLLOW_RE.test(nextSurface)) {
+        return {
+          ...tok,
+          reading: 'イマ',
+          pronunciation: 'イマ',
+        };
+      }
     }
     if (
       KANJI_TEST.test(tok.surface_form) &&
