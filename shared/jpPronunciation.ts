@@ -237,7 +237,7 @@ export function katakanaToMmsRomaji(input: string): string {
 }
 
 const KANJI_OR_DIGIT_RE = /[\u4E00-\u9FFF々0-9０-９]/;
-const PUNCT_STRIP_RE = /[、。,.!?！？「」『』()（）・〜~…♪♡★]/g;
+const PUNCT_STRIP_RE = /[\s、。,.!?！？()（）「」『』\[\]【】［］《》〈〉“”‘’・〜~…♪♡★]/g;
 
 /**
  * Reconstructs the full kana reading of a segment from its surface `jp` and furigana `ruby`,
@@ -267,15 +267,15 @@ export function buildFullKanaFromSegment(jp: string, ruby: string): string {
   }
 
   if (
-    /[\u4E00-\u9FFF々]は[、。,.!?！？\s]*$/.test(jp) &&
-    /は[、。,.!?！？\s]*$/.test(reconstructed)
+    /[\u4E00-\u9FFF々]は[\s、。,.!?！？)）」』\]】］》〉”’]*$/.test(jp) &&
+    /は[\s、。,.!?！？)）」』\]】］》〉”’]*$/.test(reconstructed)
   ) {
-    reconstructed = reconstructed.replace(/は([、。,.!?！？\s]*)$/, 'わ$1');
+    reconstructed = reconstructed.replace(/は([\s、。,.!?！？)）」』\]】］》〉”’]*)$/, 'わ$1');
   } else if (
-    /[\u4E00-\u9FFF々]へ[、。,.!?！？\s]*$/.test(jp) &&
-    /へ[、。,.!?！？\s]*$/.test(reconstructed)
+    /[\u4E00-\u9FFF々]へ[\s、。,.!?！？)）」』\]】］》〉”’]*$/.test(jp) &&
+    /へ[\s、。,.!?！？)）」』\]】］》〉”’]*$/.test(reconstructed)
   ) {
-    reconstructed = reconstructed.replace(/へ([、。,.!?！？\s]*)$/, 'え$1');
+    reconstructed = reconstructed.replace(/へ([\s、。,.!?！？)）」』\]】］》〉”’]*)$/, 'え$1');
   }
 
   return reconstructed;

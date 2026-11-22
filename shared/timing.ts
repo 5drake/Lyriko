@@ -120,8 +120,8 @@ export function alignFuriganaToKanji(jp: string, ruby: string): FuriganaSpan[] {
   // Single kanji run case (most common: 心臓, 痛みの, 隙間風, 突破して, お願い)
   if (kanjiRuns.length === 1) {
     const kRun = kanjiRuns[0];
-    const prefix = toHiragana(chars.slice(0, kRun.start).join(''));
-    const suffix = toHiragana(chars.slice(kRun.end).join(''));
+    const prefix = toHiragana(chars.slice(0, kRun.start).join('')).replace(/[^\u3040-\u309Fー]/g, '');
+    const suffix = toHiragana(chars.slice(kRun.end).join('')).replace(/[^\u3040-\u309Fー]/g, '');
     let aligned = cleanRuby;
     if (prefix && aligned.startsWith(prefix) && aligned.length > prefix.length) {
       aligned = aligned.slice(prefix.length);
@@ -140,7 +140,8 @@ export function alignFuriganaToKanji(jp: string, ruby: string): FuriganaSpan[] {
   for (let i = 0; i < runs.length; i++) {
     const run = runs[i];
     if (!run.isKanji) {
-      const hiraRun = toHiragana(run.text);
+      const hiraRun = toHiragana(run.text).replace(/[^\u3040-\u309Fー]/g, '');
+      if (!hiraRun) continue;
       const idx = cleanRuby.indexOf(hiraRun, rCursor);
       if (idx === -1) {
         matchedAll = false;

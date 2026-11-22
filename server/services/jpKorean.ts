@@ -57,22 +57,41 @@ export function getTokenizer(): Promise<Tokenizer<IpadicFeatures>> {
 
 const KANJI_TEST = /[\u4E00-\u9FFF々]/;
 const KANA_ONLY_TEST = /^[\u3040-\u309F\u30A0-\u30FFー]+$/;
-const PUNCT_ONLY_TEST = /^[\s、。,.!?！？「」『』()（）・〜~…♪♡★\-]+$/;
+const OPENING_BRACKET_TEST = /^[(\（「『\[【［《〈“‘]+$/;
+const CLOSING_OR_TRAILING_PUNCT_TEST = /^[\s、。,.!?！？)）」』\]】］》〉”’・〜~…♪♡★\-]+$/;
+const PUNCT_ONLY_TEST = /^[\s、。,.!?！？()（）「」『』\[\]【】［］《》〈〉“”‘’・〜~…♪♡★\-]+$/;
+
+function isOpeningBracketOnly(tokens: IpadicFeatures[]): boolean {
+  return tokens.length > 0 && tokens.every((t) => OPENING_BRACKET_TEST.test(t.surface_form));
+}
 
 function shouldMergeWithPrevious(
   prevTokens: IpadicFeatures[],
-  curr: IpadicFeatures
+  curr: IpadicFeatures,
+  hadSpaceBefore = false
 ): boolean {
   if (prevTokens.length === 0) return false;
   const prev = prevTokens[prevTokens.length - 1];
 
-  // Never merge across pure whitespace separator
+  // Never merge across pure whitespace separator token
   if (prev.surface_form.trim() === '' || curr.surface_form.trim() === '') {
     return false;
   }
-  // Punctuation attaches to previous segment regardless of POS
-  if (PUNCT_ONLY_TEST.test(curr.surface_form)) {
+  // Opening brackets start a new chunk and attach to the following word (keep consecutive opening brackets together)
+  if (OPENING_BRACKET_TEST.test(curr.surface_form)) {
+    return isOpeningBracketOnly(prevTokens);
+  }
+  // Attach the following token directly onto a leading opening bracket chunk (e.g. "(" + "本気" -> "(本気")
+  if (isOpeningBracketOnly(prevTokens)) {
     return true;
+  }
+  // Closing brackets and trailing punctuation attach to the previous segment regardless of POS
+  if (CLOSING_OR_TRAILING_PUNCT_TEST.test(curr.surface_form)) {
+    return true;
+  }
+  // Preserve explicit whitespace boundaries between normal words
+  if (hadSpaceBefore) {
+    return false;
   }
   // Keep English apostrophe contractions (e.g. Don't, I'll) in one segment
   if ((curr.surface_form === "'" || curr.surface_form === '’') && /[a-zA-Z]$/.test(prev.surface_form)) {
@@ -710,15 +729,18 @@ export async function analyzeLineToSegments(
 
   // Split out pure spaces cleanly, group bunsetsu chunks
   const groups: IpadicFeatures[][] = [];
+  let hadSpaceBefore = false;
   for (const tok of rawTokens) {
     if (/^\s+$/.test(tok.surface_form)) {
+      hadSpaceBefore = true;
       continue;
     }
-    if (groups.length > 0 && shouldMergeWithPrevious(groups[groups.length - 1], tok)) {
+    if (groups.length > 0 && shouldMergeWithPrevious(groups[groups.length - 1], tok, hadSpaceBefore)) {
       groups[groups.length - 1].push(tok);
     } else {
       groups.push([tok]);
     }
+    hadSpaceBefore = false;
   }
 
   // Filter out leading/trailing orphan punctuation groups by attaching to neighbors
