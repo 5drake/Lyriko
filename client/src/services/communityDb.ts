@@ -219,11 +219,59 @@ export function clearAdminSession(): void {
   }
 }
 
+async function callSupabaseAdminEdge<T extends { ok?: boolean; error?: string }>(
+  creds: SupabaseCredentials,
+  adminKey: string,
+  payload: Record<string, unknown>
+): Promise<{ status: number; data: T }> {
+  const res = await fetch(`${creds.url}/functions/v1/library-admin`, {
+    method: 'POST',
+    headers: supabaseHeaders(creds, {
+      'Content-Type': 'application/json',
+      'x-admin-key': adminKey,
+    }),
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(9000),
+  });
+  const data = (await res.json().catch(() => ({}))) as T;
+  return { status: res.status, data };
+}
+
 export async function verifyAdminKey(
   adminKey: string
 ): Promise<{ ok: boolean; error?: string }> {
   const clean = (adminKey || '').trim();
   if (!clean) return { ok: false, error: '관리자 키를 입력하세요.' };
+
+  const creds = getSupabaseCredentials();
+  if (creds) {
+    try {
+      const { status, data } = await callSupabaseAdminEdge<{
+        ok?: boolean;
+        isAdmin?: boolean;
+        error?: string;
+      }>(creds, clean, { action: 'verify' });
+      if (status >= 200 && status < 300 && data.ok) {
+        try {
+          window.sessionStorage.setItem(ADMIN_KEY_SESSION_KEY, clean);
+          window.dispatchEvent(new Event(ADMIN_CHANGE_EVENT));
+        } catch {
+          // ignore storage errors
+        }
+        return { ok: true };
+      }
+      return {
+        ok: false,
+        error: data.error || '관리자 키가 올바르지 않습니다.',
+      };
+    } catch {
+      return {
+        ok: false,
+        error: '관리자 인증 서버에 연결할 수 없습니다.',
+      };
+    }
+  }
+
   try {
     const res = await fetch(workerUrl('/api/library/admin/verify'), {
       method: 'POST',
@@ -248,6 +296,50 @@ export async function verifyAdminKey(
     return {
       ok: false,
       error: data.error || '관리자 키가 올바르지 않습니다.',
+    };
+  } catch {
+    return {
+      ok: false,
+      error: '관리자 인증 서버에 연결할 수 없습니다.',
+    };
+  }
+}
+
+export async function changeAdminPassword(
+  newKey: string
+): Promise<{ ok: boolean; error?: string }> {
+  const cleanNew = (newKey || '').trim();
+  if (cleanNew.length < 4) {
+    return { ok: false, error: '새 비밀번호는 4자 이상 입력해 주세요.' };
+  }
+  if (cleanNew.length > 128) {
+    return { ok: false, error: '새 비밀번호는 128자 이하로 입력해 주세요.' };
+  }
+  const creds = getSupabaseCredentials();
+  if (!creds) {
+    return { ok: false, error: 'Supabase 공용 DB가 연결되어 있을 때만 변경할 수 있습니다.' };
+  }
+  const adminKey = getSavedAdminKey();
+  if (!adminKey) {
+    return { ok: false, error: '관리자 권한이 필요합니다.' };
+  }
+  try {
+    const { status, data } = await callSupabaseAdminEdge<{
+      ok?: boolean;
+      error?: string;
+    }>(creds, adminKey, { action: 'change_password', newKey: cleanNew });
+    if (status >= 200 && status < 300 && data.ok) {
+      try {
+        window.sessionStorage.setItem(ADMIN_KEY_SESSION_KEY, cleanNew);
+        window.dispatchEvent(new Event(ADMIN_CHANGE_EVENT));
+      } catch {
+        // ignore storage errors
+      }
+      return { ok: true };
+    }
+    return {
+      ok: false,
+      error: data.error || '비밀번호 변경에 실패했습니다.',
     };
   } catch {
     return {
@@ -1000,7 +1092,8 @@ export async function listLibraryRevisions(
   const creds = getSupabaseCredentials();
   if (creds) {
     try {
-      const [songRes, revsRes] = await Promise.all([
+      const adminKey = getSavedAdminKey();
+      const [songRes, revsRes, repEdge] = await Promise.all([
         fetch(
           `${creds.url}/rest/v1/song_analyses?youtube_video_id=eq.${encodeURIComponent(vid)}&select=youtube_video_id,active_revision_id,status,locked,report_count,hidden&limit=1`,
           { headers: supabaseHeaders(creds), signal: AbortSignal.timeout(4000) }
@@ -1009,6 +1102,15 @@ export async function listLibraryRevisions(
           `${creds.url}/rest/v1/song_revisions?youtube_video_id=eq.${encodeURIComponent(vid)}&select=rev_id,version,status,author_name,edit_note,lyrics_hash,lines_json,created_at&order=version.desc&limit=30`,
           { headers: supabaseHeaders(creds), signal: AbortSignal.timeout(4000) }
         ),
+        adminKey
+          ? callSupabaseAdminEdge<{
+              ok?: boolean;
+              reports?: LibraryReportEntry[];
+              error?: string;
+            }>(creds, adminKey, { action: 'list_reports', youtubeVideoId: vid }).catch(
+              () => null
+            )
+          : Promise.resolve(null),
       ]);
       if (songRes.ok && revsRes.ok) {
         const songRows = (await songRes.json()) as Array<{
@@ -1031,6 +1133,14 @@ export async function listLibraryRevisions(
         }>;
         const song = songRows[0];
         if (song) {
+          const adminReports =
+            repEdge &&
+            repEdge.status >= 200 &&
+            repEdge.status < 300 &&
+            repEdge.data.ok &&
+            Array.isArray(repEdge.data.reports)
+              ? repEdge.data.reports
+              : [];
           return {
             youtubeVideoId: song.youtube_video_id,
             activeRevisionId: song.active_revision_id ?? undefined,
@@ -1038,7 +1148,7 @@ export async function listLibraryRevisions(
             locked: Boolean(song.locked),
             reportCount: Number(song.report_count ?? 0),
             hidden: Boolean(song.hidden),
-            reports: [],
+            reports: adminReports,
             revisions: revRows.map((r) => {
               const lines = Array.isArray(r.lines_json) ? r.lines_json : [];
               return {
@@ -1195,6 +1305,110 @@ export async function activateLibraryRevision(
   if (!vid || !revId) return { ok: false, error: '잘못된 요청입니다.' };
 
   const adminKey = getSavedAdminKey();
+  const creds = getSupabaseCredentials();
+  if (creds) {
+    if (adminKey) {
+      try {
+        const { status, data } = await callSupabaseAdminEdge<{
+          ok?: boolean;
+          summary?: LibrarySongSummary;
+          error?: string;
+        }>(creds, adminKey, {
+          action: 'activate_revision',
+          youtubeVideoId: vid,
+          revId,
+        });
+        if (status >= 200 && status < 300 && data.ok) {
+          return { ok: true, summary: data.summary };
+        }
+        return { ok: false, error: data.error || `HTTP ${status}` };
+      } catch {
+        return { ok: false, error: 'Supabase 관리자 서버에 연결할 수 없습니다.' };
+      }
+    }
+
+    try {
+      const [songRes, revRes] = await Promise.all([
+        fetch(
+          `${creds.url}/rest/v1/song_analyses?youtube_video_id=eq.${encodeURIComponent(vid)}&select=locked,status,hidden,lyrics_hash&limit=1`,
+          { headers: supabaseHeaders(creds), signal: AbortSignal.timeout(4500) }
+        ),
+        fetch(
+          `${creds.url}/rest/v1/song_revisions?youtube_video_id=eq.${encodeURIComponent(vid)}&rev_id=eq.${encodeURIComponent(revId)}&select=*&limit=1`,
+          { headers: supabaseHeaders(creds), signal: AbortSignal.timeout(4500) }
+        ),
+      ]);
+      if (!songRes.ok || !revRes.ok) {
+        return { ok: false, error: '버전 정보를 조회하지 못했습니다.' };
+      }
+      const songRows = (await songRes.json()) as Array<{
+        locked?: boolean | null;
+        status?: string | null;
+        hidden?: boolean | null;
+        lyrics_hash?: string | null;
+      }>;
+      const revRows = (await revRes.json()) as Array<{
+        rev_id: string;
+        status?: string | null;
+        author_name?: string | null;
+        edit_note?: string | null;
+        lyrics_hash?: string | null;
+        mr_youtube_id?: string | null;
+        mr_sync_offset?: number | null;
+        karaoke_youtube_id?: string | null;
+        karaoke_sync_offset?: number | null;
+        disambiguated_count?: number | null;
+        device_label?: string | null;
+        lines_json?: LyricLine[] | null;
+      }>;
+      const song = songRows[0];
+      const rev = revRows[0];
+      if (!song || !rev || !Array.isArray(rev.lines_json)) {
+        return { ok: false, error: '해당 버전을 찾을 수 없습니다.' };
+      }
+      if (song.locked || song.status === 'verified' || song.hidden) {
+        return { ok: false, error: '관리자 권한이 필요합니다.' };
+      }
+      const nextStatus: LibraryQualityStatus =
+        rev.status === 'auto' ? 'auto' : 'edited';
+      const patchRes = await fetch(
+        `${creds.url}/rest/v1/song_analyses?youtube_video_id=eq.${encodeURIComponent(vid)}`,
+        {
+          method: 'PATCH',
+          headers: supabaseHeaders(creds, {
+            'Content-Type': 'application/json',
+            Prefer: 'return=representation',
+          }),
+          body: JSON.stringify({
+            lines_json: rev.lines_json,
+            lyrics_hash: rev.lyrics_hash || song.lyrics_hash || '',
+            mr_youtube_id: rev.mr_youtube_id ?? null,
+            mr_sync_offset: Number(rev.mr_sync_offset ?? 0),
+            karaoke_youtube_id: rev.karaoke_youtube_id ?? null,
+            karaoke_sync_offset: Number(rev.karaoke_sync_offset ?? 0),
+            disambiguated_count: Number(rev.disambiguated_count ?? 0),
+            device_label: rev.device_label ?? null,
+            status: nextStatus,
+            author_name: rev.author_name || '익명 기여자',
+            edit_note: rev.edit_note || '',
+            active_revision_id: rev.rev_id,
+          }),
+          signal: AbortSignal.timeout(5000),
+        }
+      );
+      if (patchRes.ok) {
+        const updated = (await patchRes.json().catch(() => [])) as SupabaseRow[];
+        return {
+          ok: true,
+          summary: updated[0] ? toSummary(rowToRecord(updated[0])) : undefined,
+        };
+      }
+      return { ok: false, error: '대표 버전 전환에 실패했습니다.' };
+    } catch {
+      return { ok: false, error: 'Supabase에 연결할 수 없습니다.' };
+    }
+  }
+
   try {
     const res = await fetch(
       workerUrl(
@@ -1371,6 +1585,47 @@ export async function moderateLibrarySong(
   if (!vid) return { ok: false, error: '잘못된 곡 ID입니다.' };
 
   const adminKey = getSavedAdminKey();
+  const creds = getSupabaseCredentials();
+  if (creds) {
+    if (!adminKey) {
+      return { ok: false, error: '관리자 권한이 필요합니다.' };
+    }
+    try {
+      const { status, data } = await callSupabaseAdminEdge<{
+        ok?: boolean;
+        summary?: LibrarySongSummary;
+        error?: string;
+      }>(creds, adminKey, {
+        action: 'moderate',
+        youtubeVideoId: vid,
+        moderateAction: action,
+      });
+      if (status >= 200 && status < 300 && data.ok) {
+        const local = readLocalCacheMap();
+        if (local[vid] && data.summary) {
+          local[vid] = normalizeRecord({
+            ...local[vid],
+            status: data.summary.status,
+            locked: data.summary.locked,
+            hidden: data.summary.hidden,
+            reportCount: data.summary.reportCount,
+            ...(action === 'verify' || action === 'dismiss_reports' || action === 'restore'
+              ? { reports: [] }
+              : {}),
+          });
+          writeLocalCacheMap(local);
+        }
+        return { ok: true, summary: data.summary };
+      }
+      if (status === 401 || status === 403) {
+        return { ok: false, error: data.error || '관리자 권한이 필요합니다.' };
+      }
+      return { ok: false, error: data.error || `HTTP ${status}` };
+    } catch {
+      return { ok: false, error: 'Supabase 관리자 서버에 연결할 수 없습니다.' };
+    }
+  }
+
   try {
     const res = await fetch(
       workerUrl(`/api/library/${encodeURIComponent(vid)}/moderate`),
@@ -1527,29 +1782,41 @@ export async function deleteLibrarySong(youtubeVideoId: string): Promise<boolean
   if (!vid) return false;
   const adminKey = getSavedAdminKey();
   const creds = getSupabaseCredentials();
-  if (!creds) {
+  if (creds) {
+    if (!adminKey) return false;
     try {
-      const res = await fetch(workerUrl(`/api/library/${encodeURIComponent(vid)}`), {
-        method: 'DELETE',
-        headers: adminKey ? { 'x-admin-key': adminKey } : undefined,
-        signal: AbortSignal.timeout(3000),
-      });
-      if (!res.ok) return false;
-      const local = readLocalCacheMap();
-      if (local[vid]) {
-        delete local[vid];
-        writeLocalCacheMap(local);
+      const { status, data } = await callSupabaseAdminEdge<{
+        ok?: boolean;
+        error?: string;
+      }>(creds, adminKey, { action: 'delete', youtubeVideoId: vid });
+      if (status >= 200 && status < 300 && data.ok) {
+        const local = readLocalCacheMap();
+        if (local[vid]) {
+          delete local[vid];
+          writeLocalCacheMap(local);
+        }
+        return true;
       }
-      return true;
+      return false;
     } catch {
       return false;
     }
   }
-  if (!adminKey) return false;
-  const local = readLocalCacheMap();
-  if (local[vid]) {
-    delete local[vid];
-    writeLocalCacheMap(local);
+
+  try {
+    const res = await fetch(workerUrl(`/api/library/${encodeURIComponent(vid)}`), {
+      method: 'DELETE',
+      headers: adminKey ? { 'x-admin-key': adminKey } : undefined,
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return false;
+    const local = readLocalCacheMap();
+    if (local[vid]) {
+      delete local[vid];
+      writeLocalCacheMap(local);
+    }
+    return true;
+  } catch {
+    return false;
   }
-  return true;
 }

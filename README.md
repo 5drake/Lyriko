@@ -112,8 +112,9 @@ npm run build:worker
    - [supabase/schema.sql](./supabase/schema.sql)을 Supabase SQL Editor에서 실행합니다.
    - **Supabase**: [supabase/schema.sql](./supabase/schema.sql)을 Supabase SQL Editor에서 실행한 뒤 `.env`(또는 Vercel 환경변수)에 `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`(또는 `VITE_SUPABASE_ANON_KEY`)를 설정합니다.
    - 환경변수가 비어 있으면 로컬 Express JSON DB 또는 스타터 카탈로그(`starter-library.json` + 브라우저 캐시)로 동작합니다.
-3. **로컬 워커 관리자 인증 (선택)**
-   - 운영자 라이브러리 검수·잠금·삭제 기능은 서버 환경변수 `LYRIKO_ADMIN_KEY` (미설정 시 `server/data/admin_key.txt` 자동 생성)를 통해 인증합니다.
+3. **관리자 인증 (선택)**
+   - **Supabase 공용 DB 사용 시**: `supabase/functions/library-admin` Edge Function이 `private.lyriko_admin_credentials`(앱 `설정 → 정보 · 크레딧`에서 비밀번호 변경 가능) 또는 Supabase Edge Function Secret `LYRIKO_ADMIN_KEY`로 인증하여 검수·잠금·버전 복구·삭제를 처리합니다.
+   - **로컬 워커 단독 사용 시**: 서버 환경변수 `LYRIKO_ADMIN_KEY`(미설정 시 `server/data/admin_key.txt` 자동 생성)를 통해 인증합니다.
 
 ---
 

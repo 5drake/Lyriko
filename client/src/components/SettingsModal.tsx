@@ -19,7 +19,9 @@ import {
 } from 'lucide-react';
 import {
   ADMIN_CHANGE_EVENT,
+  changeAdminPassword,
   clearAdminSession,
+  getCommunityDbStatus,
   getSavedContributorName,
   isAdminSessionActive,
   saveContributorName,
@@ -58,6 +60,11 @@ export function SettingsModal({
   const [adminBusy, setAdminBusy] = useState(false);
   const [adminFeedback, setAdminFeedback] = useState('');
   const [adminError, setAdminError] = useState('');
+  const [showChangePw, setShowChangePw] = useState(false);
+  const [newPwInput, setNewPwInput] = useState('');
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwError, setPwError] = useState('');
+  const isSupabaseAdmin = getCommunityDbStatus().configured;
 
   useEffect(() => {
     const syncAdmin = () => setIsAdmin(isAdminSessionActive());
@@ -73,6 +80,9 @@ export function SettingsModal({
     setAdminKeyInput('');
     setAdminFeedback('');
     setAdminError('');
+    setShowChangePw(false);
+    setNewPwInput('');
+    setPwError('');
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -109,6 +119,26 @@ export function SettingsModal({
       }
     } finally {
       setAdminBusy(false);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPwInput.trim() || pwBusy) return;
+    setPwBusy(true);
+    setPwError('');
+    setAdminFeedback('');
+    try {
+      const res = await changeAdminPassword(newPwInput);
+      if (res.ok) {
+        setNewPwInput('');
+        setShowChangePw(false);
+        setAdminFeedback('관리자 비밀번호가 변경되었습니다.');
+      } else {
+        setPwError(res.error || '비밀번호 변경에 실패했습니다.');
+      }
+    } finally {
+      setPwBusy(false);
     }
   };
 
@@ -472,20 +502,67 @@ export function SettingsModal({
                 </div>
 
                 {isAdmin ? (
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-300">
-                    <span>현재 브라우저 세션에서 라이브러리 검수·잠금·삭제 도구를 사용할 수 있습니다.</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        clearAdminSession();
-                        setIsAdmin(false);
-                        setAdminFeedback('');
-                      }}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-white/[0.05] px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-white/[0.1] transition"
-                    >
-                      <LogOut className="h-3.5 w-3.5" />
-                      로그아웃
-                    </button>
+                  <div className="space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-300">
+                      <span>현재 브라우저 세션에서 라이브러리 검수·잠금·버전 복구·삭제 도구를 사용할 수 있습니다.</span>
+                      <div className="flex items-center gap-1.5">
+                        {isSupabaseAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowChangePw((prev) => !prev);
+                              setPwError('');
+                              setNewPwInput('');
+                            }}
+                            className="inline-flex items-center gap-1 rounded-lg border border-sky-400/30 bg-sky-500/15 px-3 py-1.5 text-xs font-medium text-sky-200 hover:bg-sky-500/25 transition"
+                          >
+                            비밀번호 변경
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            clearAdminSession();
+                            setIsAdmin(false);
+                            setShowChangePw(false);
+                            setAdminFeedback('');
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-white/[0.05] px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-white/[0.1] transition"
+                        >
+                          <LogOut className="h-3.5 w-3.5" />
+                          로그아웃
+                        </button>
+                      </div>
+                    </div>
+                    {adminFeedback && (
+                      <div className="text-[11px] text-emerald-300 font-medium">{adminFeedback}</div>
+                    )}
+                    {showChangePw && isSupabaseAdmin && (
+                      <form onSubmit={handleChangePassword} className="space-y-1.5 pt-1">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="password"
+                            value={newPwInput}
+                            onChange={(e) => {
+                              setNewPwInput(e.target.value);
+                              setPwError('');
+                            }}
+                            placeholder="새 비밀번호 (4자 이상)"
+                            className="flex-1 rounded-lg border border-white/[0.09] bg-black/35 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:border-sky-400/60 focus:outline-none"
+                          />
+                          <button
+                            type="submit"
+                            disabled={pwBusy || newPwInput.trim().length < 4}
+                            className="inline-flex items-center gap-1 rounded-lg bg-sky-500 px-3.5 py-1.5 text-xs font-semibold text-slate-950 hover:bg-sky-400 disabled:opacity-45 transition shrink-0"
+                          >
+                            {pwBusy ? '변경 중...' : '변경'}
+                          </button>
+                        </div>
+                        {pwError && (
+                          <div className="text-[11px] text-rose-300 font-medium">{pwError}</div>
+                        )}
+                      </form>
+                    )}
                   </div>
                 ) : (
                   <form onSubmit={handleVerifyAdmin} className="space-y-2">
@@ -515,8 +592,14 @@ export function SettingsModal({
                       <div className="text-[11px] text-emerald-300 font-medium">{adminFeedback}</div>
                     )}
                     <div className="text-[10.5px] text-slate-400">
-                      관리자 키는 서버 <code className="font-mono">LYRIKO_ADMIN_KEY</code> 환경변수 또는{' '}
-                      <code className="font-mono">server/data/admin_key.txt</code>에서 확인합니다.
+                      {isSupabaseAdmin ? (
+                        'Supabase 공용 DB 관리자 비밀번호로 인증합니다. 로컬 워커 없이 어느 브라우저에서나 공용 라이브러리 검수·잠금·버전 복구·삭제를 할 수 있습니다.'
+                      ) : (
+                        <>
+                          관리자 키는 서버 <code className="font-mono">LYRIKO_ADMIN_KEY</code> 환경변수 또는{' '}
+                          <code className="font-mono">server/data/admin_key.txt</code>에서 확인합니다.
+                        </>
+                      )}
                     </div>
                   </form>
                 )}

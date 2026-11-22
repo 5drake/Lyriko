@@ -289,3 +289,74 @@ grant usage on schema public to anon, authenticated;
 grant select, insert, update on public.song_analyses to anon, authenticated;
 grant select, insert on public.song_revisions to anon, authenticated;
 grant insert on public.song_reports to anon, authenticated;
+
+-- Private salted-bcrypt admin credential store (overridable by LYRIKO_ADMIN_KEY Edge Function secret)
+create schema if not exists private;
+revoke all on schema private from public, anon, authenticated;
+grant usage on schema private to service_role;
+
+create table if not exists private.lyriko_admin_credentials (
+  id text primary key,
+  password_hash text not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table private.lyriko_admin_credentials enable row level security;
+revoke all on table private.lyriko_admin_credentials from public, anon, authenticated;
+grant select, insert, update on table private.lyriko_admin_credentials to service_role;
+
+drop policy if exists "Service role manages admin credentials" on private.lyriko_admin_credentials;
+create policy "Service role manages admin credentials"
+  on private.lyriko_admin_credentials
+  for all
+  to service_role
+  using (true)
+  with check (true);
+
+create or replace function public.verify_lyriko_admin_key(candidate text)
+returns boolean
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  stored_hash text;
+begin
+  if candidate is null or length(trim(candidate)) = 0 then
+    return false;
+  end if;
+  select password_hash into stored_hash
+  from private.lyriko_admin_credentials
+  where id = 'default';
+  if stored_hash is null then
+    return false;
+  end if;
+  return stored_hash = extensions.crypt(trim(candidate), stored_hash);
+end;
+$$;
+
+revoke all on function public.verify_lyriko_admin_key(text) from public, anon, authenticated;
+grant execute on function public.verify_lyriko_admin_key(text) to service_role;
+
+create or replace function public.set_lyriko_admin_key(new_key text)
+returns void
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  clean text := trim(coalesce(new_key, ''));
+begin
+  if length(clean) < 4 or length(clean) > 128 then
+    raise exception 'Admin key must be between 4 and 128 characters';
+  end if;
+  insert into private.lyriko_admin_credentials (id, password_hash, updated_at)
+  values ('default', extensions.crypt(clean, extensions.gen_salt('bf', 10)), now())
+  on conflict (id) do update
+    set password_hash = excluded.password_hash,
+        updated_at = now();
+end;
+$$;
+
+revoke all on function public.set_lyriko_admin_key(text) from public, anon, authenticated;
+grant execute on function public.set_lyriko_admin_key(text) to service_role;
