@@ -36,11 +36,11 @@ Lyriko는 저작권·컴퓨팅 비용 보호를 위해 **음원 다운로드·AI
 | 항목 | 웹 전용 (워커 없음) | 로컬 GPU 워커 최소 사양 | 로컬 GPU 워커 권장 사양 |
 | --- | --- | --- | --- |
 | **OS** | 브라우저 지원 모든 OS | Windows 10 / 11 (64-bit) | Windows 10 / 11 (64-bit) |
-| **GPU / VRAM** | 제한 없음 | NVIDIA GTX 16 / RTX 20 이상 (VRAM 6 GB+) *(CPU 폴백 가능)* | **RTX 3060 (8~12 GB) 이상** (최신 NVIDIA 드라이버) |
+| **GPU / VRAM** | 제한 없음 | NVIDIA GTX 16 / RTX 20 이상 (VRAM 6 GB+) *(CPU 폴백 가능)* | **RTX 3060 (8\~12 GB) 이상** (최신 NVIDIA 드라이버) |
 | **RAM** | 4 GB+ | 8 GB | 16 GB 이상 |
 | **여유 저장공간** | 불필요 | **10 GB** *(PyTorch CUDA + AI 모델 1.8 GB + Node.js/Python)* | **15 GB 이상** |
 | **사전 설치** | 없음 | 없음 *(첫 실행 시 Node.js·Python 폴더 내부 자동 구성)* | 없음 *(첫 실행 시 자동 구성)* |
-| **AI 싱크 (4분 곡)** | 해당 없음 (공유 곡 즉시 감상) | GTX 1660·RTX 2060 약 60~120초 / CPU 모드 수 분 | **RTX 3060 약 30~45초 · RTX 5090 약 10~15초** |
+| **AI 싱크 (4분 곡)** | 해당 없음 (공유 곡 즉시 감상) | GTX 1660·RTX 2060 약 60\~120초 / CPU 모드 수 분 | **RTX 3060 약 30\~45초 · RTX 5090 약 10\~15초** |
 
 > 방화벽·사내망 등으로 포터블 Node.js 자동 다운로드가 실패하면 [nodejs.org](https://nodejs.org)에서 LTS 버전을 수동 설치하거나 터미널에서 `winget install OpenJS.NodeJS.LTS`를 실행한 뒤 `Lyriko-Worker.bat`를 다시 실행해 주세요.
 
