@@ -343,6 +343,7 @@ const AMBIGUOUS_KANJI_READINGS: AmbiguousKanjiEntry[] = [
   { kanji: '瞬', readings: ['まばた', 'またた'], followRegex: /^[きくけこ]/ },
   { kanji: '日本', readings: ['にほん', 'にっぽん'] },
   { kanji: '空', readings: ['そら', 'から'] },
+  { kanji: '角', readings: ['かど', 'かく', 'つの'] },
   { kanji: '風', readings: ['かぜ', 'ふう'] },
   { kanji: '音', readings: ['おと', 'ね'] },
   { kanji: '方', readings: ['ほう', 'かた'] },

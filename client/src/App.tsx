@@ -13,7 +13,7 @@ import {
 import {
   alignLyricsWithAiProgress,
   autoSyncMrApi,
-  convertJapaneseLyrics,
+  convertJapaneseLyricsWithMeta,
   fetchDemoProject,
   importYoutubeWithProgress,
   prepareProcessedAudioApi,
@@ -1266,14 +1266,24 @@ export default function App() {
         const rawText = preferred.syncedLyrics || preferred.plainLyrics;
         if (!rawText) return;
         const dur = targetDur || preferred.duration || snap.duration;
-        const lines = await convertJapaneseLyrics({
+        const appliedTitle = preferred.trackName || opts.fallbackTitle || snap.title;
+        const appliedArtist = preferred.artistName || opts.fallbackArtist || snap.artist;
+        setAiAlignStatus('공식 가사 변환 · 일본어 웹 후리가나 매칭 중...');
+        const { lines, furiganaSource } = await convertJapaneseLyricsWithMeta({
           rawText,
           duration: dur,
           longVowelMode: 'vowel',
+          title: appliedTitle,
+          artist: appliedArtist,
         });
+        const furiganaNote = furiganaSource?.matched
+          ? ` · ${furiganaSource.sourceLabel} 후리가나 ${
+              furiganaSource.overriddenSegments > 0
+                ? `${furiganaSource.overriddenSegments}건 보정`
+                : `${furiganaSource.verifiedSegments}건 검증`
+            }`
+          : '';
         let finalLines = lines;
-        const appliedTitle = preferred.trackName || opts.fallbackTitle || snap.title;
-        const appliedArtist = preferred.artistName || opts.fallbackArtist || snap.artist;
         setProject((prev) => ({
           ...prev,
           title: preferred.trackName || prev.title,
@@ -1287,7 +1297,9 @@ export default function App() {
 
         const targetVid = opts.youtubeVideoId || projectRef.current.youtubeVideoId;
         if (opts.autoTranslate) {
-          setAiAlignStatus(`공식 가사 ${lines.length}줄 변환 완료 · 신뢰 번역 찾는 중...`);
+          setAiAlignStatus(
+            `공식 가사 ${lines.length}줄 변환 완료${furiganaNote} · 신뢰 번역 찾는 중...`
+          );
           try {
             const transRes = await translateLyricsSmart({
               title: appliedTitle,
@@ -1315,7 +1327,7 @@ export default function App() {
             duration: dur,
           });
         } else {
-          setAiAlignStatus(`공식 가사 ${finalLines.length}줄 적용 완료!`);
+          setAiAlignStatus(`공식 가사 ${finalLines.length}줄 적용 완료${furiganaNote}!`);
         }
       } catch (err) {
         setAiAlignStatus(

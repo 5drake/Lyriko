@@ -1039,6 +1039,58 @@ export function splitReadingToMoras(readingKata: string, fallbackJp = ''): Lyric
   return moras;
 }
 
+const PUNCT_STRIP_RE = /[\s、。,.!?！？()（）「」『』\[\]【】［］《》〈〉“”‘’・〜~…♪♡★]/g;
+
+function buildFullKanaWithParticles(
+  tokenizer: Tokenizer<IpadicFeatures>,
+  jp: string,
+  ruby: string
+): string {
+  let fullKana = buildFullKanaFromSegment(jp, ruby);
+  const cleanJp = (jp || '').trim();
+  if (!cleanJp) return fullKana;
+
+  const tokens = tokenizer.tokenize(cleanJp);
+  let lastWordTok: IpadicFeatures | undefined;
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    if (!PUNCT_ONLY_TEST.test(tokens[i].surface_form)) {
+      lastWordTok = tokens[i];
+      break;
+    }
+  }
+  if (lastWordTok && lastWordTok.pos === '助詞') {
+    if (
+      lastWordTok.surface_form === 'は' &&
+      /は[\s、。,.!?！？)）」』\]】］》〉”’・〜~…♪♡★\-]*$/.test(fullKana)
+    ) {
+      fullKana = fullKana.replace(
+        /は([\s、。,.!?！？)）」』\]】］》〉”’・〜~…♪♡★\-]*)$/,
+        'わ$1'
+      );
+    } else if (
+      lastWordTok.surface_form === 'へ' &&
+      /へ[\s、。,.!?！？)）」』\]】］》〉”’・〜~…♪♡★\-]*$/.test(fullKana)
+    ) {
+      fullKana = fullKana.replace(
+        /へ([\s、。,.!?！？)）」』\]】］》〉”’・〜~…♪♡★\-]*)$/,
+        'え$1'
+      );
+    }
+  }
+  return fullKana;
+}
+
+export async function computeKoPronWithParticles(
+  jp: string,
+  ruby: string,
+  longVowelMode: LongVowelMode = 'vowel'
+): Promise<string> {
+  const tokenizer = await getTokenizer();
+  const fullKana = buildFullKanaWithParticles(tokenizer, jp, ruby);
+  const cleaned = fullKana.replace(PUNCT_STRIP_RE, '');
+  return katakanaToKorean(cleaned, { longVowelMode });
+}
+
 function resolveSegmentPronKata(
   tokenizer: Tokenizer<IpadicFeatures>,
   seg: LyricSegment
@@ -1063,26 +1115,15 @@ function resolveSegmentPronKata(
   const kuromojiHira = toHiragana(readingKata).replace(/[^\u3040-\u309Fー]/g, '');
   const cleanRuby = toHiragana((seg.ruby || '').trim()).replace(/[^\u3040-\u309Fー]/g, '');
 
-  // Prefer user/AI-corrected seg.ruby only if it genuinely differs from Kuromoji reading
+  // Prefer user/web-corrected seg.ruby only if it genuinely differs from Kuromoji reading
   if (cleanRuby && (KANJI_TEST.test(seg.jp || '') || /[0-9０-９]/.test(seg.jp || ''))) {
     const matchesExact = cleanRuby === kuromojiHira;
     const matchesPrefix =
       kuromojiHira.length > cleanRuby.length && kuromojiHira.startsWith(cleanRuby);
     if (!matchesExact && !matchesPrefix) {
-      const tailMatch = (seg.jp || '').match(
-        /([\u3040-\u309F\u30A0-\u30FFー]+)[、。,.!?！？\s]*$/
-      );
-      const tailKana = tailMatch ? tailMatch[1] : '';
-      const tailHira = toHiragana(tailKana);
-      if (tailKana && !cleanRuby.endsWith(tailHira)) {
-        const tailPronKata = tokenizer
-          .tokenize(tailKana)
-          .map((t) => tokenPronKata(t) || t.surface_form)
-          .join('');
-        pronKata = toKatakana(cleanRuby) + tailPronKata;
-      } else {
-        pronKata = toKatakana(cleanRuby);
-      }
+      const fullKana = buildFullKanaWithParticles(tokenizer, seg.jp || '', cleanRuby);
+      const stripped = fullKana.replace(PUNCT_STRIP_RE, '');
+      pronKata = toKatakana(stripped || cleanRuby);
     }
   }
 
@@ -1114,7 +1155,10 @@ export async function enrichLinesWithAlignRomaji(
     ...line,
     segments: (line.segments || []).map((seg) => {
       const { alignRomaji } = resolveSegmentPronKata(tokenizer, seg);
-      const readingCandidates = getServerCandidatesForSegment(tokenizer, seg.jp, seg.ruby);
+      const isVerifiedSource = seg.rubySource === 'web' || seg.rubySource === 'user';
+      const readingCandidates = isVerifiedSource
+        ? []
+        : getServerCandidatesForSegment(tokenizer, seg.jp, seg.ruby);
       return {
         ...seg,
         alignRomaji,

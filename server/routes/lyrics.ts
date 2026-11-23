@@ -1,10 +1,11 @@
 import { Router } from 'express';
-import type { LrcSearchResult } from '../../shared/types.js';
+import type { LrcSearchResult, LyricLine } from '../../shared/types.js';
 import {
   convertLinesToKaraoke,
   parseLrcOrText,
   type LongVowelMode,
 } from '../services/jpKorean.js';
+import { applyWebFuriganaToLines } from '../services/webFurigana.js';
 
 export const lyricsRouter = Router();
 
@@ -170,6 +171,9 @@ lyricsRouter.post('/jp/convert', async (req, res) => {
       rawText?: string;
       duration?: number;
       longVowelMode?: LongVowelMode;
+      title?: string;
+      artist?: string;
+      useWebFurigana?: boolean;
       lines?: Array<{
         id?: string;
         startTime: number;
@@ -198,11 +202,50 @@ lyricsRouter.post('/jp/convert', async (req, res) => {
       return;
     }
 
-    const lines = await convertLinesToKaraoke(items, { longVowelMode });
-    res.json({ lines });
+    const rawLines = await convertLinesToKaraoke(items, { longVowelMode });
+    const hasKanji = rawLines.some((l) => /[\u4E00-\u9FFF々]/.test(l.jpText || ''));
+    if (body.useWebFurigana !== false && hasKanji) {
+      const enriched = await applyWebFuriganaToLines(rawLines, {
+        title: typeof body.title === 'string' ? body.title : undefined,
+        artist: typeof body.artist === 'string' ? body.artist : undefined,
+        longVowelMode,
+      });
+      res.json({ lines: enriched.lines, furiganaSource: enriched.furiganaSource });
+      return;
+    }
+
+    res.json({ lines: rawLines });
   } catch (err) {
     res.status(500).json({
       error: `일본어 가사 변환 실패: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
+});
+
+lyricsRouter.post('/jp/web-furigana', async (req, res) => {
+  try {
+    const body = req.body as {
+      lines?: LyricLine[];
+      title?: string;
+      artist?: string;
+      longVowelMode?: LongVowelMode;
+    };
+
+    if (!Array.isArray(body.lines) || body.lines.length === 0) {
+      res.status(400).json({ error: '후리가나를 매칭할 가사 데이터가 없습니다.' });
+      return;
+    }
+
+    const longVowelMode: LongVowelMode = body.longVowelMode === 'dash' ? 'dash' : 'vowel';
+    const enriched = await applyWebFuriganaToLines(body.lines, {
+      title: typeof body.title === 'string' ? body.title : undefined,
+      artist: typeof body.artist === 'string' ? body.artist : undefined,
+      longVowelMode,
+    });
+    res.json({ lines: enriched.lines, furiganaSource: enriched.furiganaSource });
+  } catch (err) {
+    res.status(500).json({
+      error: `웹 후리가나 매칭 실패: ${err instanceof Error ? err.message : String(err)}`,
     });
   }
 });

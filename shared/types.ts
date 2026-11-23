@@ -6,6 +6,7 @@ export interface LyricSegment {
   startTime: number;
   endTime: number;
   altReadings?: Array<{ ruby: string; koPron: string }>;
+  rubySource?: 'web' | 'user' | 'kuromoji';
 }
 
 export interface LyricLine {
@@ -169,6 +170,18 @@ export interface SmartTranslateResult {
   fallbackFilled: number;
   totalLines: number;
   candidates: TranslationCandidate[];
+}
+
+export interface WebFuriganaMatchInfo {
+  matched: boolean;
+  sourceLabel: string;
+  sourceUrl?: string;
+  songTitle?: string;
+  songArtist?: string;
+  matchedLines: number;
+  totalLines: number;
+  overriddenSegments: number;
+  verifiedSegments: number;
 }
 
 export interface SpectrumData {

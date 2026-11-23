@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  BookOpen,
   Clock,
   Layers,
   Loader2,
@@ -16,7 +17,7 @@ import {
   buildKoPronFromSegment,
   getReadingCandidatesForSegment,
 } from '@shared/jpPronunciation';
-import { convertJapaneseLyrics } from '../api';
+import { applyWebFurigana, convertJapaneseLyrics } from '../api';
 
 interface LyricInspectorProps {
   project: KaraokeProject;
@@ -114,8 +115,14 @@ export function LyricInspector({
   const [autoFollow, setAutoFollow] = useState(true);
   const [syncToolsOpen, setSyncToolsOpen] = useState(false);
   const [reconverting, setReconverting] = useState(false);
+  const [webFuriganaBusy, setWebFuriganaBusy] = useState(false);
+  const [webFuriganaStatus, setWebFuriganaStatus] = useState('');
   const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const detailEditorRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setWebFuriganaStatus('');
+  }, [project.id]);
   const selectedLineIdRef = useRef<string | null>(selectedLineId);
   selectedLineIdRef.current = selectedLineId;
   const onSelectLineRef = useRef(onSelectLine);
@@ -207,6 +214,8 @@ export function LyricInspector({
     setReconverting(true);
     try {
       const converted = await convertJapaneseLyrics({
+        title: project.title,
+        artist: project.artist,
         lines: [
           {
             id: line.id,
@@ -223,6 +232,41 @@ export function LyricInspector({
       }
     } finally {
       setReconverting(false);
+    }
+  };
+
+  const handleApplyWebFurigana = async () => {
+    if (project.lines.length === 0) return;
+    setWebFuriganaBusy(true);
+    setWebFuriganaStatus('UtaTen 일본어 후리가나 검색 중...');
+    try {
+      const { lines, furiganaSource } = await applyWebFurigana({
+        lines: project.lines,
+        title: project.title,
+        artist: project.artist,
+        longVowelMode: 'vowel',
+      });
+      if (furiganaSource.matched) {
+        onUpdateProject((prev) => ({
+          ...prev,
+          lines,
+        }));
+        const detail =
+          furiganaSource.overriddenSegments > 0
+            ? `${furiganaSource.overriddenSegments}개 발음 보정`
+            : `${furiganaSource.verifiedSegments}개 검증 완료`;
+        setWebFuriganaStatus(
+          `${furiganaSource.sourceLabel} 후리가나 매칭 완료 (${furiganaSource.matchedLines}/${furiganaSource.totalLines}소절 · ${detail})`
+        );
+      } else {
+        setWebFuriganaStatus('일치하는 일본어 웹 후리가나를 찾지 못했습니다.');
+      }
+    } catch (err) {
+      setWebFuriganaStatus(
+        `웹 후리가나 매칭 실패: ${err instanceof Error ? err.message : String(err)}`
+      );
+    } finally {
+      setWebFuriganaBusy(false);
     }
   };
 
@@ -430,6 +474,23 @@ export function LyricInspector({
             <span>{aiAligning ? 'AI 싱크 정렬 중...' : 'AI 싱크 다시 맞추기'}</span>
           </button>
 
+          <button
+            type="button"
+            onClick={() => void handleApplyWebFurigana()}
+            disabled={webFuriganaBusy || aiAligning || project.lines.length === 0}
+            className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-sky-400/35 bg-sky-500/12 py-1.5 px-2.5 text-[11px] font-semibold text-sky-200 hover:bg-sky-500/20 disabled:opacity-45 transition"
+            title="일본 UtaTen 공식 후리가나 페이지를 찾아 한자 독음과 한국어 발음을 자동 보정합니다"
+          >
+            {webFuriganaBusy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <BookOpen className="h-3.5 w-3.5" />
+            )}
+            <span>
+              {webFuriganaBusy ? '일본어 웹 후리가나 매칭 중...' : '웹 후리가나 매칭 (UtaTen)'}
+            </span>
+          </button>
+
           <div className="flex items-center justify-between gap-2">
             <span className="text-[10.5px] font-medium text-slate-400 whitespace-nowrap">
               전체 이동
@@ -452,6 +513,11 @@ export function LyricInspector({
 
           {aiAlignStatus && (
             <div className="text-[10.5px] text-sky-300 leading-snug">{aiAlignStatus}</div>
+          )}
+          {webFuriganaStatus && (
+            <div className="text-[10.5px] text-emerald-300/95 leading-snug">
+              {webFuriganaStatus}
+            </div>
           )}
         </div>
       )}
@@ -740,6 +806,7 @@ export function LyricInspector({
                           handleUpdateSegment(selectedLine, seg.id, {
                             ruby: nextRuby,
                             koPron: nextKoPron,
+                            rubySource: 'user',
                           });
                         }}
                         title="후리가나"
@@ -860,6 +927,7 @@ export function LyricInspector({
                                 handleUpdateSegment(selectedLine, seg.id, {
                                   ruby: cand.ruby,
                                   koPron: cand.koPron,
+                                  rubySource: 'user',
                                 })
                               }
                               className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] transition border ${

@@ -7,6 +7,7 @@ import type {
   LyricLine,
   PitchNote,
   SmartTranslateResult,
+  WebFuriganaMatchInfo,
   WorkerHealthResponse,
 } from '@shared/types';
 import { getSupabaseCredentials, supabaseHeaders } from './services/communityDb';
@@ -42,10 +43,13 @@ export async function searchLyricsOnline(
   return data.results;
 }
 
-export async function convertJapaneseLyrics(payload: {
+export interface ConvertJapanesePayload {
   rawText?: string;
   duration?: number;
   longVowelMode?: 'vowel' | 'dash';
+  title?: string;
+  artist?: string;
+  useWebFurigana?: boolean;
   lines?: Array<{
     id?: string;
     startTime: number;
@@ -54,15 +58,40 @@ export async function convertJapaneseLyrics(payload: {
     koTranslation?: string;
     slot?: 0 | 1 | 2;
   }>;
-}): Promise<LyricLine[]> {
-  const data = await handleJson<{ lines: LyricLine[] }>(
+}
+
+export async function convertJapaneseLyricsWithMeta(
+  payload: ConvertJapanesePayload
+): Promise<{ lines: LyricLine[]; furiganaSource?: WebFuriganaMatchInfo }> {
+  return handleJson<{ lines: LyricLine[]; furiganaSource?: WebFuriganaMatchInfo }>(
     await fetch(workerUrl('/api/jp/convert'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     })
   );
+}
+
+export async function convertJapaneseLyrics(
+  payload: ConvertJapanesePayload
+): Promise<LyricLine[]> {
+  const data = await convertJapaneseLyricsWithMeta(payload);
   return data.lines;
+}
+
+export async function applyWebFurigana(payload: {
+  lines: LyricLine[];
+  title?: string;
+  artist?: string;
+  longVowelMode?: 'vowel' | 'dash';
+}): Promise<{ lines: LyricLine[]; furiganaSource: WebFuriganaMatchInfo }> {
+  return handleJson<{ lines: LyricLine[]; furiganaSource: WebFuriganaMatchInfo }>(
+    await fetch(workerUrl('/api/jp/web-furigana'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  );
 }
 
 export async function uploadMediaFile(
