@@ -11,6 +11,7 @@ import {
   computeMrAutoSyncOffset,
   prepareProcessedAudio,
 } from '../services/audioProcessor.js';
+import { extractSongFingerprint } from '../services/chromaExtractor.js';
 import { CACHE_DIR } from '../services/storage.js';
 
 export const audioRouter = Router();
@@ -95,6 +96,33 @@ audioRouter.post('/audio/sync-mr', async (req, res) => {
   } catch (err) {
     res.status(500).json({
       error: `MR 자동 싱크 분석 실패: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
+});
+
+audioRouter.post('/audio/extract-chroma', async (req, res) => {
+  try {
+    const body = req.body as {
+      youtubeVideoId?: string;
+      audioFileId?: string;
+      mrAudioFileId?: string;
+      mrSyncOffset?: number;
+    };
+    const youtubeVideoId = String(body.youtubeVideoId || '').trim();
+    if (!youtubeVideoId) {
+      res.status(400).json({ error: 'youtubeVideoId가 필요합니다.' });
+      return;
+    }
+    const fingerprint = await extractSongFingerprint({
+      youtubeVideoId,
+      audioFileId: body.audioFileId,
+      mrAudioFileId: body.mrAudioFileId,
+      mrSyncOffset: Number(body.mrSyncOffset ?? 0),
+    });
+    res.json({ ok: true, fingerprint });
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : String(err),
     });
   }
 });

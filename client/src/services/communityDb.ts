@@ -1,4 +1,5 @@
 import type {
+  ChromaSourceKind,
   CommunitySongAnalysis,
   LibraryQualityStatus,
   LibraryReportEntry,
@@ -7,6 +8,7 @@ import type {
   LibraryRevisionMeta,
   LibrarySongSummary,
   LyricLine,
+  SongChromaFingerprint,
 } from '@shared/types';
 import { workerUrl } from '../workerClient';
 
@@ -654,7 +656,7 @@ export async function listLibrarySongs(opts?: {
       const endpoint =
         `${creds.url}/rest/v1/song_analyses` +
         `?select=youtube_video_id,lyrics_hash,pipeline_version,title,artist,duration,artwork_url,mr_youtube_id,mr_sync_offset,karaoke_youtube_id,karaoke_sync_offset,disambiguated_count,device_label,upvotes,status,locked,author_name,edit_note,active_revision_id,revision_count,report_count,hidden,updated_at,lines_json` +
-        `&order=${orderParam}&limit=100`;
+        `&order=${orderParam}&limit=300`;
       const res = await fetch(endpoint, {
         headers: supabaseHeaders(creds),
         signal: AbortSignal.timeout(4500),
@@ -1819,4 +1821,200 @@ export async function deleteLibrarySong(youtubeVideoId: string): Promise<boolean
   } catch {
     return false;
   }
+}
+
+const FP_LOCAL_CACHE_KEY = 'lyriko_fp_cache_v1';
+const FP_MAX_LOCAL_ENTRIES = 15;
+const fpMemoryCache = new Map<string, SongChromaFingerprint>();
+
+interface SupabaseFingerprintRow {
+  youtube_video_id: string;
+  algo_version: string;
+  source_kind: string;
+  fps: number;
+  frame_count: number;
+  offset_sec: number;
+  chroma_b64: string;
+  updated_at?: string;
+}
+
+function rowToFingerprint(row: SupabaseFingerprintRow): SongChromaFingerprint {
+  const sourceKind: ChromaSourceKind =
+    row.source_kind === 'mr' || row.source_kind === 'karaoke' ? row.source_kind : 'original';
+  return {
+    youtubeVideoId: row.youtube_video_id,
+    algoVersion: row.algo_version || 'chroma_v2_4hz',
+    sourceKind,
+    fps: Number(row.fps) > 0 ? Number(row.fps) : 4,
+    frameCount: Number(row.frame_count) || 0,
+    offsetSec: Number(row.offset_sec) || 0,
+    chromaB64: row.chroma_b64 || '',
+    updatedAt: row.updated_at,
+  };
+}
+
+function readFpLocalCache(): Record<string, SongChromaFingerprint> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(FP_LOCAL_CACHE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, SongChromaFingerprint>;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeFpLocalCache(fp: SongChromaFingerprint): void {
+  fpMemoryCache.set(fp.youtubeVideoId, fp);
+  if (typeof window === 'undefined') return;
+  try {
+    const map = readFpLocalCache();
+    map[fp.youtubeVideoId] = { ...fp, updatedAt: fp.updatedAt || new Date().toISOString() };
+    const sorted = Object.entries(map)
+      .sort((a, b) => (b[1].updatedAt || '').localeCompare(a[1].updatedAt || ''))
+      .slice(0, FP_MAX_LOCAL_ENTRIES);
+    window.localStorage.setItem(FP_LOCAL_CACHE_KEY, JSON.stringify(Object.fromEntries(sorted)));
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+export async function fetchSongFingerprint(
+  youtubeVideoId: string
+): Promise<SongChromaFingerprint | null> {
+  const vid = (youtubeVideoId || '').trim();
+  if (!vid) return null;
+
+  const memHit = fpMemoryCache.get(vid);
+  if (memHit && memHit.chromaB64 && memHit.frameCount >= 20) {
+    return memHit;
+  }
+
+  const creds = getSupabaseCredentials();
+  if (creds) {
+    try {
+      const endpoint =
+        `${creds.url}/rest/v1/song_fingerprints` +
+        `?youtube_video_id=eq.${encodeURIComponent(vid)}&limit=1`;
+      const res = await fetch(endpoint, {
+        headers: supabaseHeaders(creds),
+        signal: AbortSignal.timeout(4500),
+      });
+      if (res.ok) {
+        const rows = (await res.json()) as SupabaseFingerprintRow[];
+        if (Array.isArray(rows) && rows[0]?.chroma_b64 && rows[0].frame_count >= 20) {
+          const fp = rowToFingerprint(rows[0]);
+          writeFpLocalCache(fp);
+          return fp;
+        }
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  try {
+    const res = await fetch(workerUrl(`/api/library/${encodeURIComponent(vid)}/fingerprint`), {
+      signal: AbortSignal.timeout(2500),
+      cache: 'no-store',
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { fingerprint?: SongChromaFingerprint };
+      if (data.fingerprint?.chromaB64 && data.fingerprint.frameCount >= 20) {
+        writeFpLocalCache(data.fingerprint);
+        return data.fingerprint;
+      }
+    }
+  } catch {
+    // fall through
+  }
+
+  const localMap = readFpLocalCache();
+  const cached = localMap[vid];
+  if (cached && cached.chromaB64 && cached.frameCount >= 20) {
+    fpMemoryCache.set(vid, cached);
+    return cached;
+  }
+  return null;
+}
+
+export async function upsertSongFingerprint(
+  fp: SongChromaFingerprint
+): Promise<{ ok: boolean; savedTo: string; error?: string }> {
+  const vid = (fp.youtubeVideoId || '').trim();
+  if (!vid || !fp.chromaB64 || fp.frameCount < 20) {
+    return { ok: false, savedTo: 'none', error: '유효한 지문 데이터가 아닙니다.' };
+  }
+  writeFpLocalCache(fp);
+
+  // Best-effort save to local worker too
+  void fetch(workerUrl(`/api/library/${encodeURIComponent(vid)}/fingerprint`), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fp),
+    signal: AbortSignal.timeout(2500),
+  }).catch(() => {});
+
+  const creds = getSupabaseCredentials();
+  if (creds) {
+    try {
+      const res = await fetch(
+        `${creds.url}/rest/v1/song_fingerprints?on_conflict=youtube_video_id`,
+        {
+          method: 'POST',
+          headers: supabaseHeaders(creds, {
+            'Content-Type': 'application/json',
+            Prefer: 'resolution=merge-duplicates,return=minimal',
+          }),
+          body: JSON.stringify({
+            youtube_video_id: vid,
+            algo_version: fp.algoVersion || 'chroma_v2_4hz',
+            source_kind: fp.sourceKind || 'original',
+            fps: fp.fps || 4,
+            frame_count: fp.frameCount,
+            offset_sec: fp.offsetSec || 0,
+            chroma_b64: fp.chromaB64,
+          }),
+          signal: AbortSignal.timeout(5000),
+        }
+      );
+      if (res.ok) {
+        return { ok: true, savedTo: 'supabase' };
+      }
+      const txt = await res.text().catch(() => '');
+      return { ok: false, savedTo: 'local-cache', error: `HTTP ${res.status}: ${txt.slice(0, 120)}` };
+    } catch (err) {
+      return {
+        ok: false,
+        savedTo: 'local-cache',
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+  return { ok: true, savedTo: 'local-cache' };
+}
+
+export async function listFingerprintVideoIds(): Promise<Set<string>> {
+  const ids = new Set<string>();
+  const creds = getSupabaseCredentials();
+  if (!creds) return ids;
+  try {
+    const res = await fetch(
+      `${creds.url}/rest/v1/song_fingerprints?select=youtube_video_id&limit=500`,
+      {
+        headers: supabaseHeaders(creds),
+        signal: AbortSignal.timeout(4500),
+      }
+    );
+    if (res.ok) {
+      const rows = (await res.json()) as Array<{ youtube_video_id?: string }>;
+      for (const r of rows) {
+        if (r.youtube_video_id) ids.add(r.youtube_video_id);
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return ids;
 }

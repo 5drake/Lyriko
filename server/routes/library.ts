@@ -11,12 +11,14 @@ import type {
   LibraryRevisionMeta,
   LibrarySongSummary,
   LyricLine,
+  SongChromaFingerprint,
 } from '../../shared/types.js';
 import { DATA_DIR, ensureDataDirs } from '../services/storage.js';
 
 export const libraryRouter = Router();
 
 const LIBRARY_FILE = path.join(DATA_DIR, 'community_library.json');
+const FINGERPRINTS_DIR = path.join(DATA_DIR, 'fingerprints');
 const ADMIN_KEY_FILE = path.join(DATA_DIR, 'admin_key.txt');
 const MAX_REVISIONS_PER_SONG = 15;
 const AUTO_HIDE_REPORT_THRESHOLD = 3;
@@ -796,4 +798,65 @@ libraryRouter.delete('/library/:videoId', (req, res) => {
     writeLibraryStore(next);
   }
   res.json({ ok: true });
+});
+
+function getFingerprintFilePath(videoId: string): string {
+  fs.mkdirSync(FINGERPRINTS_DIR, { recursive: true });
+  return path.join(FINGERPRINTS_DIR, `${path.basename(videoId)}.json`);
+}
+
+libraryRouter.get('/library/:videoId/fingerprint', (req, res) => {
+  const vid = String(req.params.videoId || '').trim();
+  if (!isValidVideoId(vid)) {
+    res.status(400).json({ error: '잘못된 YouTube ID입니다.' });
+    return;
+  }
+  const fpPath = getFingerprintFilePath(vid);
+  if (!fs.existsSync(fpPath)) {
+    res.status(404).json({ error: '저장된 Chroma 지문이 없습니다.' });
+    return;
+  }
+  try {
+    const fingerprint = JSON.parse(fs.readFileSync(fpPath, 'utf-8')) as SongChromaFingerprint;
+    res.json({ ok: true, fingerprint });
+  } catch {
+    res.status(500).json({ error: '지문 파일 읽기에 실패했습니다.' });
+  }
+});
+
+libraryRouter.put('/library/:videoId/fingerprint', (req, res) => {
+  const vid = String(req.params.videoId || '').trim();
+  if (!isValidVideoId(vid)) {
+    res.status(400).json({ error: '잘못된 YouTube ID입니다.' });
+    return;
+  }
+  const body = req.body as Partial<SongChromaFingerprint> | undefined;
+  if (
+    !body ||
+    typeof body.chromaB64 !== 'string' ||
+    body.chromaB64.length < 100 ||
+    body.chromaB64.length > 120000 ||
+    !Number.isFinite(body.frameCount) ||
+    Number(body.frameCount) < 20 ||
+    Number(body.frameCount) > 6000
+  ) {
+    res.status(400).json({ error: '유효하지 않은 Chroma 지문 데이터입니다.' });
+    return;
+  }
+  const fingerprint: SongChromaFingerprint = {
+    youtubeVideoId: vid,
+    algoVersion: String(body.algoVersion || 'chroma_v2_4hz'),
+    sourceKind:
+      body.sourceKind === 'mr' || body.sourceKind === 'karaoke' ? body.sourceKind : 'original',
+    fps: Number(body.fps) > 0 ? Number(body.fps) : 4,
+    frameCount: Math.round(Number(body.frameCount)),
+    offsetSec: Number.isFinite(body.offsetSec) ? Number(body.offsetSec) : 0,
+    chromaB64: body.chromaB64,
+    updatedAt: new Date().toISOString(),
+  };
+  const fpPath = getFingerprintFilePath(vid);
+  const tmpPath = `${fpPath}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(fingerprint), 'utf-8');
+  fs.renameSync(tmpPath, fpPath);
+  res.json({ ok: true, fingerprint });
 });
