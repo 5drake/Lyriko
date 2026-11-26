@@ -7,7 +7,6 @@ import type {
   LyricLine,
   PitchNote,
   SmartTranslateResult,
-  SongChromaFingerprint,
   WebFuriganaMatchInfo,
   WorkerHealthResponse,
 } from '@shared/types';
@@ -640,20 +639,4 @@ export async function alignLyricsWithAiProgress(
     'AI 가사 강제 정렬 실패',
     onProgress
   );
-}
-
-export async function extractChromaFingerprintApi(payload: {
-  youtubeVideoId: string;
-  audioFileId?: string;
-  mrAudioFileId?: string;
-  mrSyncOffset?: number;
-}): Promise<SongChromaFingerprint> {
-  const data = await handleJson<{ ok: boolean; fingerprint: SongChromaFingerprint }>(
-    await fetch(workerUrl('/api/audio/extract-chroma'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-  );
-  return data.fingerprint;
 }

@@ -7,7 +7,6 @@ import {
   type KaraokeProject,
   type LibrarySongSummary,
   type LyricLine,
-  type SongChromaFingerprint,
   type SpectrumData,
   type WorkerHealthResponse,
 } from '@shared/types';
@@ -15,7 +14,6 @@ import {
   alignLyricsWithAiProgress,
   autoSyncMrApi,
   convertJapaneseLyricsWithMeta,
-  extractChromaFingerprintApi,
   fetchDemoProject,
   importYoutubeWithProgress,
   prepareProcessedAudioApi,
@@ -25,7 +23,6 @@ import {
 } from './api';
 import { ExportModal } from './components/ExportModal';
 import { LeftSidebar } from './components/LeftSidebar';
-import { LiveKaraokeSyncBar } from './components/LiveKaraokeSyncBar';
 import { LyricInspector } from './components/LyricInspector';
 import { MobileLyricsView } from './components/MobileLyricsView';
 import {
@@ -43,21 +40,15 @@ import { Timeline } from './components/Timeline';
 import { TopBar } from './components/TopBar';
 import { WorkerStatusModal } from './components/WorkerStatusModal';
 import type { RenderResources } from './engine/karaokeRenderer';
-import {
-  LiveKaraokeSyncEngine,
-  type LiveSyncSnapshot,
-} from './engine/liveKaraokeSync';
 import { analyzeAudioSpectrum } from './engine/spectrumAnalyzer';
 import { YoutubeFallbackController } from './engine/youtubeIframeAudio';
 import {
-  fetchSongFingerprint,
   getCommunityDbStatus,
   getLibraryRevisionDetail,
   getLibrarySongDetail,
   listLibrarySongs,
   lookupSongAnalysis,
   publishSongAnalysis,
-  upsertSongFingerprint,
   type PublishSongOptions,
   type PublishSongResult,
 } from './services/communityDb';
@@ -65,7 +56,6 @@ import { probeWorkerHealth, workerUrl } from './workerClient';
 
 const UI_THEME_KEY = 'utakana_ui_theme_v1';
 const UI_FONT_SIZE_KEY = 'utakana_ui_font_size_v1';
-const LIVE_SYNC_OFFSET_KEY = 'lyriko_live_sync_offset_v1';
 const FRAME_STEP_FPS = 30;
 const FRAME_STEP_SEC = 1 / FRAME_STEP_FPS;
 const SCRUB_BLIP_SEC = 0.068;
@@ -206,29 +196,6 @@ export default function App() {
   const [mrSyncing, setMrSyncing] = useState(false);
   const [mrSyncStatus, setMrSyncStatus] = useState('');
   const [mrSyncMonitorOriginal, setMrSyncMonitorOriginal] = useState(false);
-  const [liveFingerprint, setLiveFingerprint] = useState<SongChromaFingerprint | null>(null);
-  const [liveFingerprintLoading, setLiveFingerprintLoading] = useState(false);
-  const [liveManualOffsetSec, setLiveManualOffsetSec] = useState<number>(() => {
-    if (typeof window === 'undefined') return 0;
-    try {
-      const raw = Number(window.localStorage.getItem(LIVE_SYNC_OFFSET_KEY));
-      return Number.isFinite(raw) ? Math.max(-3, Math.min(3, raw)) : 0;
-    } catch {
-      return 0;
-    }
-  });
-  const [liveSyncSnap, setLiveSyncSnap] = useState<LiveSyncSnapshot>({
-    status: 'idle',
-    micLevel: 0,
-    elapsedSec: 0,
-    confidence: 0,
-    detectedKeyShift: 0,
-    candidateSongTimeSec: 0,
-    canForceLock: false,
-    lockedSongTimeSec: 0,
-    lockWallMs: 0,
-    message: '',
-  });
   const [toast, setToast] = useState<{
     message: string;
     canUndoAction?: boolean;
@@ -254,12 +221,6 @@ export default function App() {
   const toastTimerRef = useRef<number | null>(null);
   const ytControllerRef = useRef<YoutubeFallbackController | null>(null);
   const ytLoadedVideoIdRef = useRef<string>('');
-  const liveSyncEngineRef = useRef<LiveKaraokeSyncEngine | null>(null);
-  const liveManualOffsetRef = useRef<number>(liveManualOffsetSec);
-  const livePreVolumeRef = useRef<number | null>(null);
-  const liveWarmupTimerRef = useRef<number | null>(null);
-  const liveLockTimerRef = useRef<number | null>(null);
-  const liveCalibrateTimerRef = useRef<number | null>(null);
 
   const audioMode = normalizeAudioPlayMode(project.audioMode);
   const keyShift = Math.max(-6, Math.min(6, Math.round(project.keyShift ?? 0)));
@@ -275,7 +236,6 @@ export default function App() {
   playbackRateRef.current = playbackRate;
   volumeRef.current = volume;
   keyShiftRef.current = keyShift;
-  liveManualOffsetRef.current = liveManualOffsetSec;
 
   const showToast = useCallback(
     (
@@ -1261,22 +1221,6 @@ export default function App() {
               setAiAlignStatus(`${baseStatus} · 라이브러리 자동 등록`);
             }
           });
-
-          if (workerHealth?.ok && (latest.audioFileId || latest.mrAudioFileId)) {
-            void extractChromaFingerprintApi({
-              youtubeVideoId: targetVid,
-              audioFileId: latest.audioFileId,
-              mrAudioFileId: latest.mrAudioFileId,
-              mrSyncOffset: latest.mrSyncOffset,
-            })
-              .then((fp) => {
-                if (projectRef.current.youtubeVideoId === targetVid) {
-                  setLiveFingerprint(fp);
-                }
-                return upsertSongFingerprint(fp);
-              })
-              .catch(() => {});
-          }
         }
       } catch (err) {
         setAudioError(err instanceof Error ? err.message : String(err));
@@ -1533,25 +1477,6 @@ export default function App() {
       setDbProvider(getCommunityDbStatus().provider);
       if (res.ok) {
         setLibraryVersion((v) => v + 1);
-        const cur = projectRef.current;
-        if (workerHealth?.ok && (cur.audioFileId || cur.mrAudioFileId)) {
-          const targetVid = cur.youtubeVideoId;
-          if (targetVid) {
-            void extractChromaFingerprintApi({
-              youtubeVideoId: targetVid,
-              audioFileId: cur.audioFileId,
-              mrAudioFileId: cur.mrAudioFileId,
-              mrSyncOffset: cur.mrSyncOffset,
-            })
-              .then((fp) => {
-                if (projectRef.current.youtubeVideoId === targetVid) {
-                  setLiveFingerprint(fp);
-                }
-                return upsertSongFingerprint(fp);
-              })
-              .catch(() => {});
-          }
-        }
       }
       return res;
     },
@@ -1937,254 +1862,6 @@ export default function App() {
     }
   }, [project.duration, hasAnyAudioTrack, activeYtTarget, bgVideo]);
 
-  const clearLiveSyncTimers = useCallback(() => {
-    if (liveWarmupTimerRef.current !== null) {
-      window.clearTimeout(liveWarmupTimerRef.current);
-      liveWarmupTimerRef.current = null;
-    }
-    if (liveLockTimerRef.current !== null) {
-      window.clearTimeout(liveLockTimerRef.current);
-      liveLockTimerRef.current = null;
-    }
-    if (liveCalibrateTimerRef.current !== null) {
-      window.clearTimeout(liveCalibrateTimerRef.current);
-      liveCalibrateTimerRef.current = null;
-    }
-  }, []);
-
-  // Load or generate Chroma fingerprint whenever current YouTube video changes
-  useEffect(() => {
-    const vid = (project.youtubeVideoId || '').trim();
-    liveSyncEngineRef.current?.stop();
-    clearLiveSyncTimers();
-    if (!vid) {
-      setLiveFingerprint(null);
-      setLiveFingerprintLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setLiveFingerprint(null);
-    setLiveFingerprintLoading(true);
-    void (async () => {
-      try {
-        const fetched = await fetchSongFingerprint(vid);
-        if (cancelled) return;
-        if (fetched) {
-          setLiveFingerprint(fetched);
-          setLiveFingerprintLoading(false);
-          return;
-        }
-        const cur = projectRef.current;
-        if (workerHealth?.ok && (cur.audioFileId || cur.mrAudioFileId)) {
-          const extracted = await extractChromaFingerprintApi({
-            youtubeVideoId: vid,
-            audioFileId: cur.audioFileId,
-            mrAudioFileId: cur.mrAudioFileId,
-            mrSyncOffset: cur.mrSyncOffset,
-          });
-          if (!cancelled) {
-            setLiveFingerprint(extracted);
-            void upsertSongFingerprint(extracted).catch(() => {});
-          }
-        }
-      } catch {
-        // leave null cleanly when unavailable
-      } finally {
-        if (!cancelled) {
-          setLiveFingerprintLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    project.youtubeVideoId,
-    project.audioFileId,
-    project.mrAudioFileId,
-    workerHealth?.ok,
-    clearLiveSyncTimers,
-  ]);
-
-  // Initialize and tear down LiveKaraokeSyncEngine
-  useEffect(() => {
-    const engine = new LiveKaraokeSyncEngine({
-      onState: (snap) => setLiveSyncSnap(snap),
-      onLocked: (snap) => {
-        clearLiveSyncTimers();
-        // Wait briefly after stopping mic so Bluetooth headset restores stereo A2DP before unmuting
-        liveLockTimerRef.current = window.setTimeout(() => {
-          liveLockTimerRef.current = null;
-          const curProj = projectRef.current;
-          const dur = Math.max(1, curProj.duration || 300);
-          const leadSec = 0.25;
-          const targetSec = Math.max(
-            0,
-            Math.min(
-              dur,
-              snap.lockedSongTimeSec +
-                (performance.now() - snap.lockWallMs) / 1000 +
-                liveManualOffsetRef.current +
-                leadSec
-            )
-          );
-
-          const restoreVol = livePreVolumeRef.current ?? Math.max(0.25, volumeRef.current);
-          livePreVolumeRef.current = null;
-          volumeRef.current = restoreVol;
-          setVolume(restoreVol);
-
-          currentTimeRef.current = targetSec;
-          setCurrentTime(targetSec);
-
-          const audio = audioElRef.current;
-          const hasLocalAudio = Boolean(
-            curProj.audioFileId || curProj.mrAudioFileId || curProj.karaokeAudioFileId
-          );
-          if (hasLocalAudio && audio && audio.src) {
-            audio.muted = false;
-            audio.volume = restoreVol;
-            audio.playbackRate = playbackRateRef.current;
-            audio.currentTime = targetSec;
-            audio.play().catch(() => {});
-          } else if (ytControllerRef.current) {
-            const yt = ytControllerRef.current;
-            yt.setVolume(restoreVol);
-            yt.setPlaybackRate(playbackRateRef.current);
-            yt.seekTo(targetSec);
-            yt.play();
-          }
-          setIsPlaying(true);
-
-          // Single settle calibration check 1.2s later to absorb YouTube seek buffering latency
-          liveCalibrateTimerRef.current = window.setTimeout(() => {
-            liveCalibrateTimerRef.current = null;
-            if (!isPlayingRef.current) return;
-            const expectedNow = Math.max(
-              0,
-              Math.min(
-                dur,
-                snap.lockedSongTimeSec +
-                  (performance.now() - snap.lockWallMs) / 1000 +
-                  liveManualOffsetRef.current +
-                  leadSec
-              )
-            );
-            const drift = currentTimeRef.current - expectedNow;
-            if (Math.abs(drift) > 0.18 && Math.abs(drift) < 3.0) {
-              currentTimeRef.current = expectedNow;
-              setCurrentTime(expectedNow);
-              if (audioElRef.current && hasLocalAudio) {
-                audioElRef.current.currentTime = expectedNow;
-              } else if (ytControllerRef.current) {
-                ytControllerRef.current.seekTo(expectedNow);
-              }
-            }
-          }, 1200);
-        }, 150);
-      },
-    });
-    liveSyncEngineRef.current = engine;
-    return () => {
-      clearLiveSyncTimers();
-      engine.stop();
-      liveSyncEngineRef.current = null;
-    };
-  }, [clearLiveSyncTimers]);
-
-  const warmUpPlayerAndStartLiveSync = useCallback(
-    async (isResync: boolean) => {
-      if (!liveFingerprint || !liveSyncEngineRef.current) return;
-      clearLiveSyncTimers();
-
-      if (livePreVolumeRef.current === null) {
-        livePreVolumeRef.current = volumeRef.current > 0.01 ? volumeRef.current : 0.65;
-      }
-
-      if (normalizeAudioPlayMode(projectRef.current.audioMode) !== 'original') {
-        setMrSyncMonitorOriginal(false);
-        setProject((prev) => ({ ...prev, audioMode: 'original' }));
-      }
-
-      setAudioError('');
-      setIsPlaying(false);
-
-      const audio = audioElRef.current;
-      if (audio && !audio.paused) {
-        audio.pause();
-      }
-      if (!hasAnyAudioTrack && ytControllerRef.current) {
-        const yt = ytControllerRef.current;
-        // Unlock YouTube IFrame playback inside this user tap gesture, muted
-        yt.setVolume(0);
-        yt.play();
-        liveWarmupTimerRef.current = window.setTimeout(() => {
-          liveWarmupTimerRef.current = null;
-          yt.pause();
-        }, 250);
-      }
-
-      if (isResync) {
-        await liveSyncEngineRef.current.resync();
-      } else {
-        await liveSyncEngineRef.current.start(liveFingerprint);
-      }
-    },
-    [clearLiveSyncTimers, hasAnyAudioTrack, liveFingerprint]
-  );
-
-  const handleStopLiveSync = useCallback(() => {
-    clearLiveSyncTimers();
-    liveSyncEngineRef.current?.stop();
-    if (livePreVolumeRef.current !== null) {
-      const restoreVol = livePreVolumeRef.current;
-      livePreVolumeRef.current = null;
-      volumeRef.current = restoreVol;
-      setVolume(restoreVol);
-    }
-  }, [clearLiveSyncTimers]);
-
-  const handleNudgeLiveOffset = useCallback(
-    (deltaSec: number) => {
-      setLiveManualOffsetSec((prev) => {
-        const next = Math.max(-3, Math.min(3, Number((prev + deltaSec).toFixed(2))));
-        liveManualOffsetRef.current = next;
-        try {
-          window.localStorage.setItem(LIVE_SYNC_OFFSET_KEY, String(next));
-        } catch {
-          // ignore
-        }
-        return next;
-      });
-      if (isPlayingRef.current || liveSyncSnap.status === 'locked') {
-        handleSeek(currentTimeRef.current + deltaSec);
-      }
-    },
-    [handleSeek, liveSyncSnap.status]
-  );
-
-  const handleResetLiveOffset = useCallback(() => {
-    const prev = liveManualOffsetRef.current;
-    liveManualOffsetRef.current = 0;
-    setLiveManualOffsetSec(0);
-    try {
-      window.localStorage.setItem(LIVE_SYNC_OFFSET_KEY, '0');
-    } catch {
-      // ignore
-    }
-    if (Math.abs(prev) >= 0.01 && (isPlayingRef.current || liveSyncSnap.status === 'locked')) {
-      handleSeek(currentTimeRef.current - prev);
-    }
-  }, [handleSeek, liveSyncSnap.status]);
-
-  const handleMuteLyricsOnly = useCallback(() => {
-    livePreVolumeRef.current = null;
-    volumeRef.current = 0;
-    setVolume(0);
-  }, []);
-
   const handleStepFrame = useCallback(
     (frameDelta: number) => {
       if (isPlayingRef.current) {
@@ -2387,22 +2064,6 @@ export default function App() {
             onOpenSongSearch={() => openSongSearchModal()}
             onUpdateProject={updateProjectWithHistory}
             onSelectLine={setSelectedLineId}
-          />
-
-          <LiveKaraokeSyncBar
-            snapshot={liveSyncSnap}
-            hasFingerprint={Boolean(liveFingerprint)}
-            fingerprintLoading={liveFingerprintLoading}
-            hasYoutubeVideo={Boolean(project.youtubeVideoId)}
-            manualOffsetSec={liveManualOffsetSec}
-            isMuted={volume <= 0.001}
-            onStart={() => void warmUpPlayerAndStartLiveSync(false)}
-            onStop={handleStopLiveSync}
-            onForceLock={() => liveSyncEngineRef.current?.forceLockNow()}
-            onResync={() => void warmUpPlayerAndStartLiveSync(true)}
-            onNudgeManualOffset={handleNudgeLiveOffset}
-            onResetManualOffset={handleResetLiveOffset}
-            onMuteLyricsOnly={handleMuteLyricsOnly}
           />
 
           {isMobile ? (

@@ -215,19 +215,6 @@ export interface WorkerHealthResponse {
 export type LibraryQualityStatus = 'auto' | 'edited' | 'verified';
 export type LibraryReportReason = 'sync' | 'pronunciation' | 'lyrics' | 'other';
 
-export type ChromaSourceKind = 'mr' | 'original' | 'karaoke';
-
-export interface SongChromaFingerprint {
-  youtubeVideoId: string;
-  algoVersion: string;
-  sourceKind: ChromaSourceKind;
-  fps: number;
-  frameCount: number;
-  offsetSec: number;
-  chromaB64: string;
-  updatedAt?: string;
-}
-
 export interface LibraryRevisionMeta {
   revId: string;
   version: number;
