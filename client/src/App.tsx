@@ -223,6 +223,8 @@ export default function App() {
     elapsedSec: 0,
     confidence: 0,
     detectedKeyShift: 0,
+    candidateSongTimeSec: 0,
+    canForceLock: false,
     lockedSongTimeSec: 0,
     lockWallMs: 0,
     message: '',
@@ -2396,6 +2398,7 @@ export default function App() {
             isMuted={volume <= 0.001}
             onStart={() => void warmUpPlayerAndStartLiveSync(false)}
             onStop={handleStopLiveSync}
+            onForceLock={() => liveSyncEngineRef.current?.forceLockNow()}
             onResync={() => void warmUpPlayerAndStartLiveSync(true)}
             onNudgeManualOffset={handleNudgeLiveOffset}
             onResetManualOffset={handleResetLiveOffset}

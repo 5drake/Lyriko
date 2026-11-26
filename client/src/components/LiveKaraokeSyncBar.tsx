@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  Check,
   CheckCircle2,
   Loader2,
   Mic,
@@ -7,6 +8,7 @@ import {
   VolumeX,
   X,
 } from 'lucide-react';
+import { formatTime } from '@shared/timing';
 import type { LiveSyncSnapshot } from '../engine/liveKaraokeSync';
 
 interface LiveKaraokeSyncBarProps {
@@ -18,6 +20,7 @@ interface LiveKaraokeSyncBarProps {
   isMuted: boolean;
   onStart: () => void;
   onStop: () => void;
+  onForceLock: () => void;
   onResync: () => void;
   onNudgeManualOffset: (deltaSec: number) => void;
   onResetManualOffset: () => void;
@@ -33,12 +36,22 @@ export function LiveKaraokeSyncBar({
   isMuted,
   onStart,
   onStop,
+  onForceLock,
   onResync,
   onNudgeManualOffset,
   onResetManualOffset,
   onMuteLyricsOnly,
 }: LiveKaraokeSyncBarProps) {
-  const { status, micLevel, elapsedSec, confidence, detectedKeyShift, message } = snapshot;
+  const {
+    status,
+    micLevel,
+    elapsedSec,
+    confidence,
+    detectedKeyShift,
+    candidateSongTimeSec,
+    canForceLock,
+    message,
+  } = snapshot;
 
   if (!hasYoutubeVideo) {
     return null;
@@ -104,21 +117,38 @@ export function LiveKaraokeSyncBar({
                 </span>{' '}
                 <span className="text-slate-400 font-normal">/ 10~20초</span>
               </span>
-              {confidence > 0 && (
-                <span className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] text-emerald-300">
+              {confidence >= 0.15 && (
+                <span className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] text-emerald-300 shrink-0">
                   일치 {Math.round(confidence * 100)}%
+                </span>
+              )}
+              {canForceLock && (
+                <span className="rounded bg-sky-500/15 border border-sky-400/25 px-1.5 py-0.5 font-mono tabular-nums text-[10px] text-sky-200 shrink-0">
+                  예상 {formatTime(candidateSongTimeSec, false)}
                 </span>
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={onStop}
-              className="inline-flex items-center gap-1 rounded-md border border-white/[0.1] bg-white/[0.04] px-2.5 py-1 text-[11px] font-semibold text-slate-300 hover:bg-white/[0.08] hover:text-white transition shrink-0"
-            >
-              <X className="h-3 w-3" />
-              취소
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {canForceLock && (
+                <button
+                  type="button"
+                  onClick={onForceLock}
+                  className="inline-flex items-center gap-1 rounded-md border border-emerald-400/40 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-500/25 transition"
+                >
+                  <Check className="h-3 w-3" />
+                  지금 맞추기
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onStop}
+                className="inline-flex items-center gap-1 rounded-md border border-white/[0.1] bg-white/[0.04] px-2.5 py-1 text-[11px] font-semibold text-slate-300 hover:bg-white/[0.08] hover:text-white transition"
+              >
+                <X className="h-3 w-3" />
+                취소
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">

@@ -377,24 +377,28 @@ export interface ChromaTrackerUpdate {
   justLocked: boolean;
   elapsedSec: number;
   confidence: number;
+  bestZ: number;
   peakVote: number;
   top1ToTop2Ratio: number;
   detectedKeyShift: number;
   predictedOrigTimeSec: number;
   lockWallMs: number;
   activeFrac: number;
+  canForceLock: boolean;
 }
 
 /**
- * Streaming multi-hypothesis 2D offset-vote tracker matching incoming 4 Hz mic Chroma
+ * Streaming multi-hypothesis V3 2D Viterbi tracker matching incoming 4 Hz mic Chroma
  * against a reference fingerprint across all 12 circular pitch-class shifts.
+ * Uses growing query windows (6s -> 8s -> 12s -> 16s), 1D max-pool lag propagation
+ * for +-3-4% karaoke tempo tolerance, and soft z-score accumulation.
  */
 export class ChromaSyncTracker {
   private readonly refFrames: Float32Array;
   private readonly refFrameCount: number;
   private readonly fps: number;
   private readonly offsetSec: number;
-  private readonly winFrames = 32; // 8.0s at 4 Hz
+  private readonly minWinFrames = 24; // 6.0s at 4 Hz
   private readonly stepFrames = 8; // scan every 2.0s
   private readonly maxRawFrames: number;
 
@@ -408,7 +412,7 @@ export class ChromaSyncTracker {
   private readonly lagPad: number;
   private readonly nLags: number;
   private votes: Float32Array;
-  private votesRead: Float32Array;
+  private votesNext: Float32Array;
   private scoresAll: Float32Array = new Float32Array(0);
   private zMap: Float32Array = new Float32Array(0);
 
@@ -417,9 +421,11 @@ export class ChromaSyncTracker {
   private lockedBestLag = 0;
   private lockedKeyShift = 0;
   private lastConfidence = 0;
+  private lastBestZ = 0;
   private lastPeakVote = 0;
   private lastTopRatio = 0;
   private lastActiveFrac = 0;
+  private lastCanForceLock = false;
 
   constructor(opts: {
     refFrames: Float32Array;
@@ -439,11 +445,11 @@ export class ChromaSyncTracker {
     this.lagPad = this.maxRawFrames + 16;
     this.nLags = this.lagPad + this.refFrameCount + 16;
     this.votes = new Float32Array(12 * this.nLags);
-    this.votesRead = new Float32Array(12 * this.nLags);
+    this.votesNext = new Float32Array(12 * this.nLags);
 
-    const m = Math.max(1, this.refFrameCount - this.winFrames + 1);
-    this.scoresAll = new Float32Array(12 * m);
-    this.zMap = new Float32Array(12 * m);
+    const mMax = Math.max(1, this.refFrameCount - this.minWinFrames + 1);
+    this.scoresAll = new Float32Array(12 * mMax);
+    this.zMap = new Float32Array(12 * mMax);
   }
 
   reset(): void {
@@ -452,15 +458,44 @@ export class ChromaSyncTracker {
     this.firstFrameMs = null;
     this.lastFrameMs = 0;
     this.votes.fill(0);
-    this.votesRead.fill(0);
+    this.votesNext.fill(0);
     this.locked = false;
     this.lockWallMs = 0;
     this.lockedBestLag = 0;
     this.lockedKeyShift = 0;
     this.lastConfidence = 0;
+    this.lastBestZ = 0;
     this.lastPeakVote = 0;
     this.lastTopRatio = 0;
     this.lastActiveFrac = 0;
+    this.lastCanForceLock = false;
+  }
+
+  forceLock(nowMs: number): ChromaTrackerUpdate | null {
+    if (this.locked || !this.lastCanForceLock || this.firstFrameMs === null) {
+      return null;
+    }
+    this.locked = true;
+    this.lockWallMs = nowMs;
+    const elapsedSec = Math.max(0, (nowMs - this.firstFrameMs) / 1000);
+    const predictedOrigTimeSec = Math.max(
+      0,
+      (this.frameCount + this.lockedBestLag) / this.fps + this.offsetSec
+    );
+    return {
+      locked: true,
+      justLocked: true,
+      elapsedSec,
+      confidence: this.lastConfidence,
+      bestZ: this.lastBestZ,
+      peakVote: this.lastPeakVote,
+      top1ToTop2Ratio: this.lastTopRatio,
+      detectedKeyShift: this.lockedKeyShift,
+      predictedOrigTimeSec,
+      lockWallMs: this.lockWallMs,
+      activeFrac: this.lastActiveFrac,
+      canForceLock: false,
+    };
   }
 
   pushRawFrame(raw12: Float32Array, energy: number, nowMs: number): ChromaTrackerUpdate {
@@ -483,36 +518,46 @@ export class ChromaSyncTracker {
         justLocked: false,
         elapsedSec,
         confidence: this.lastConfidence,
+        bestZ: this.lastBestZ,
         peakVote: this.lastPeakVote,
         top1ToTop2Ratio: this.lastTopRatio,
         detectedKeyShift: this.lockedKeyShift,
-        predictedOrigTimeSec:
+        predictedOrigTimeSec: Math.max(
+          0,
           (this.frameCount + this.lockedBestLag) / this.fps +
-          this.offsetSec +
-          Math.max(0, (nowMs - this.lockWallMs) / 1000),
+            this.offsetSec +
+            Math.max(0, (nowMs - this.lockWallMs) / 1000)
+        ),
         lockWallMs: this.lockWallMs,
         activeFrac: this.lastActiveFrac,
+        canForceLock: false,
       };
     }
 
     const canScan =
-      this.frameCount >= this.winFrames &&
-      this.refFrameCount >= this.winFrames &&
+      this.frameCount >= this.minWinFrames &&
+      this.refFrameCount >= this.minWinFrames &&
       (this.lastScanAtFrame === 0 ||
         this.frameCount - this.lastScanAtFrame >= this.stepFrames);
 
     if (!canScan) {
+      const candidatePred =
+        this.lastScanAtFrame > 0
+          ? Math.max(0, (this.frameCount + this.lockedBestLag) / this.fps + this.offsetSec)
+          : 0;
       return {
         locked: false,
         justLocked: false,
         elapsedSec,
         confidence: this.lastConfidence,
+        bestZ: this.lastBestZ,
         peakVote: this.lastPeakVote,
         top1ToTop2Ratio: this.lastTopRatio,
         detectedKeyShift: this.lockedKeyShift,
-        predictedOrigTimeSec: 0,
+        predictedOrigTimeSec: candidatePred,
         lockWallMs: 0,
         activeFrac: this.lastActiveFrac,
+        canForceLock: this.lastCanForceLock,
       };
     }
 
@@ -521,6 +566,17 @@ export class ChromaSyncTracker {
   }
 
   private runVoteStep(elapsedSec: number, nowMs: number): ChromaTrackerUpdate {
+    // Growing query window: 6s -> 8s -> 12s -> 16s
+    const targetWin =
+      this.frameCount >= 64
+        ? 64
+        : this.frameCount >= 48
+          ? 48
+          : this.frameCount >= 32
+            ? 32
+            : 24;
+    const W = Math.min(this.refFrameCount, targetWin);
+
     const p90 = percentile90(this.energies, this.frameCount);
     const silThresh = Math.max(1e-6, 0.015 * p90);
     const { frames: normSeq, active } = normalizeChromaSequence(
@@ -530,30 +586,31 @@ export class ChromaSyncTracker {
       silThresh
     );
 
-    const kStart = this.frameCount - this.winFrames;
+    const kStart = this.frameCount - W;
     let activeCount = 0;
-    for (let u = 0; u < this.winFrames; u += 1) {
+    for (let u = 0; u < W; u += 1) {
       if (active[kStart + u]) activeCount += 1;
     }
-    const activeFrac = activeCount / this.winFrames;
+    const activeFrac = activeCount / W;
     this.lastActiveFrac = activeFrac;
 
-    const m = this.refFrameCount - this.winFrames + 1;
-    if (activeFrac >= 0.5 && m > 0) {
-      // Pearson similarity map (12 x m)
+    const m = this.refFrameCount - W + 1;
+    let scanBestZ = this.lastBestZ;
+    if (activeFrac >= 0.45 && m > 0) {
       const qSlice = normSeq.subarray(
         kStart * CHROMA_BINS,
-        (kStart + this.winFrames) * CHROMA_BINS
+        (kStart + W) * CHROMA_BINS
       );
-      const invW = 1.0 / this.winFrames;
+      const invW = 1.0 / W;
       const totalCells = 12 * m;
 
       let sumScore = 0;
+      let maxScore = -1;
       for (let s = 0; s < 12; s += 1) {
         const sRowBase = s * m;
         for (let i = 0; i < m; i += 1) {
           let acc = 0;
-          for (let u = 0; u < this.winFrames; u += 1) {
+          for (let u = 0; u < W; u += 1) {
             const refBase = (i + u) * CHROMA_BINS;
             const qBase = u * CHROMA_BINS;
             for (let p = 0; p < CHROMA_BINS; p += 1) {
@@ -563,6 +620,7 @@ export class ChromaSyncTracker {
           const score = acc * invW;
           this.scoresAll[sRowBase + i] = score;
           sumScore += score;
+          if (score > maxScore) maxScore = score;
         }
       }
 
@@ -573,13 +631,28 @@ export class ChromaSyncTracker {
         varSum += d * d;
       }
       const std = Math.sqrt(varSum / totalCells) + 1e-8;
+      scanBestZ = (maxScore - mean) / std;
 
-      // Decay old votes
-      for (let idx = 0; idx < this.votes.length; idx += 1) {
-        this.votes[idx] *= 0.82;
+      // 1D Viterbi Max-Pool propagation along lag (+-1 frame) with 0.86 decay
+      for (let s = 0; s < 12; s += 1) {
+        const rowBase = s * this.nLags;
+        this.votesNext[rowBase] = 0.86 * Math.max(this.votes[rowBase], 0.9 * (this.votes[rowBase + 1] ?? 0));
+        for (let li = 1; li < this.nLags - 1; li += 1) {
+          this.votesNext[rowBase + li] =
+            0.86 *
+            Math.max(
+              this.votes[rowBase + li],
+              0.9 * this.votes[rowBase + li - 1],
+              0.9 * this.votes[rowBase + li + 1]
+            );
+        }
+        const lastIdx = rowBase + this.nLags - 1;
+        this.votesNext[lastIdx] =
+          0.86 * Math.max(this.votes[lastIdx], 0.9 * (this.votes[lastIdx - 1] ?? 0));
       }
+      this.votes.set(this.votesNext);
 
-      // Accumulate z >= 2.0 evidence into lag = i - kStart
+      // Softer z > 1.35 evidence curve for real speaker/MIDI karaoke tracks
       const lagStart = this.lagPad - kStart;
       for (let s = 0; s < 12; s += 1) {
         const sRowBase = s * m;
@@ -587,28 +660,14 @@ export class ChromaSyncTracker {
         for (let i = 0; i < m; i += 1) {
           const z = (this.scoresAll[sRowBase + i] - mean) / std;
           this.zMap[sRowBase + i] = z;
-          if (z > 2.0) {
-            const d = z - 2.0;
-            const ev = d * Math.sqrt(d);
+          if (z > 1.35) {
+            const d = z - 1.35;
+            const ev = d * (1 + 0.15 * d);
             const li = lagStart + i;
             if (li >= 0 && li < this.nLags) {
               this.votes[vRowBase + li] += ev;
             }
           }
-        }
-      }
-    }
-
-    // Read-only +-1 frame smoothing [0.25, 0.50, 0.25] along lag
-    this.votesRead.set(this.votes);
-    if (this.nLags >= 3) {
-      for (let s = 0; s < 12; s += 1) {
-        const rowBase = s * this.nLags;
-        for (let li = 1; li < this.nLags - 1; li += 1) {
-          this.votesRead[rowBase + li] =
-            0.25 * this.votes[rowBase + li - 1] +
-            0.5 * this.votes[rowBase + li] +
-            0.25 * this.votes[rowBase + li + 1];
         }
       }
     }
@@ -619,7 +678,7 @@ export class ChromaSyncTracker {
     for (let s = 0; s < 12; s += 1) {
       const rowBase = s * this.nLags;
       for (let li = 0; li < this.nLags; li += 1) {
-        const val = this.votesRead[rowBase + li];
+        const val = this.votes[rowBase + li];
         if (val > bestVal) {
           bestVal = val;
           bestS = s;
@@ -634,7 +693,7 @@ export class ChromaSyncTracker {
       const rowBase = s * this.nLags;
       for (let li = 0; li < this.nLags; li += 1) {
         if (s === bestS && Math.abs(li - bestLagIdx) <= 8) continue;
-        const val = this.votesRead[rowBase + li];
+        const val = this.votes[rowBase + li];
         if (val > secondVal) {
           secondVal = val;
         }
@@ -643,20 +702,29 @@ export class ChromaSyncTracker {
 
     const ratio = bestVal / Math.max(secondVal, 1e-6);
     const bestLag = bestLagIdx - this.lagPad;
-    const confidence = Math.max(0, Math.min(1, bestVal / 8.0));
+    const confidence = Math.max(
+      0,
+      Math.min(1, Math.max(bestVal / 7.5, (scanBestZ - 1.2) / 3.2))
+    );
     const keyShift = signedSemitoneShift(bestS);
-    const predictedOrigTimeSec = (this.frameCount + bestLag) / this.fps + this.offsetSec;
+    const predictedOrigTimeSec = Math.max(
+      0,
+      (this.frameCount + bestLag) / this.fps + this.offsetSec
+    );
+    const canForceLock = elapsedSec >= 6.0 && bestVal >= 2.0;
 
+    this.lastBestZ = scanBestZ;
     this.lastPeakVote = bestVal;
     this.lastTopRatio = ratio;
     this.lastConfidence = confidence;
     this.lockedKeyShift = keyShift;
     this.lockedBestLag = bestLag;
+    this.lastCanForceLock = canForceLock;
 
     const shouldLock =
-      (elapsedSec >= 6.0 && bestVal >= 5.0 && ratio >= 1.25) ||
-      (elapsedSec >= 14.0 && bestVal >= 3.2 && ratio >= 1.12) ||
-      (elapsedSec >= 24.0 && bestVal >= 3.0);
+      (elapsedSec >= 8.0 && bestVal >= 6.0 && ratio >= 1.25) ||
+      (elapsedSec >= 14.0 && bestVal >= 4.0 && ratio >= 1.15) ||
+      (elapsedSec >= 20.0 && bestVal >= 2.8);
 
     if (shouldLock) {
       this.locked = true;
@@ -668,12 +736,14 @@ export class ChromaSyncTracker {
       justLocked: shouldLock,
       elapsedSec,
       confidence,
+      bestZ: scanBestZ,
       peakVote: bestVal,
       top1ToTop2Ratio: ratio,
       detectedKeyShift: keyShift,
       predictedOrigTimeSec,
       lockWallMs: this.lockWallMs,
       activeFrac,
+      canForceLock: this.locked ? false : canForceLock,
     };
   }
 }
